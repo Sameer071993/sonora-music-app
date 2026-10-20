@@ -1,0 +1,16 @@
+{
+  "id": "/sonora-music-app/",
+  "name": "Sonora Music Library",
+  "short_name": "Sonora",
+  "description": "A private, on-device music library and audio player.",
+  "start_url": "/sonora-music-app/",
+  "scope": "/sonora-music-app/",
+  "display": "standalone",
+  "background_color": "#101014",
+  "theme_color": "#101014",
+  "orientation": "any",
+  "icons": [
+    { "src": "/sonora-music-app/sonora-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/sonora-music-app/sonora-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
