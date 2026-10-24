@@ -15,3 +15,29 @@
 /* Storage, backup and restore tools */
 .storage-panel{margin-top:22px;padding:18px 19px;border:1px solid #ffffff12;border-radius:14px;background:#17171e}.storage-panel-heading{display:flex;align-items:center;gap:11px}.storage-icon{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:#a78bfa18;color:#c4b5fd;flex:none}.storage-panel-heading h3{font:700 13px Manrope,sans-serif;margin:0 0 4px}.storage-panel-heading p{font-size:10px;color:#9290a0;margin:0}.storage-meter{margin-top:17px}.storage-meter-label{display:flex;justify-content:space-between;gap:12px;color:#9d9bab;font-size:10px;margin-bottom:8px}.storage-meter-label strong{color:#e7e3f5;white-space:nowrap}.storage-meter-track{height:6px;border-radius:99px;background:#ffffff12;overflow:hidden}.storage-meter-track span{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#8b5cf6,#c4b5fd);transition:width .2s}.storage-panel-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:15px}.storage-panel-footer>span{display:flex;align-items:center;gap:6px;color:#a9a5b6;font-size:10px}.storage-panel-footer>span svg{color:#9f8bff;flex:none}.storage-actions{display:flex;gap:7px}.storage-actions .secondary-button{padding:8px 10px;font-size:10px}.storage-note{font-size:9px;line-height:1.6;color:#797786;margin:12px 0 0}.hidden-input{display:none!important}
 @media(max-width:760px){.storage-panel{padding:14px;margin-top:17px}.storage-panel-heading h3{font-size:12px}.storage-panel-footer{align-items:flex-start;flex-direction:column}.storage-actions{width:100%}.storage-actions .secondary-button{flex:1;justify-content:center}.storage-meter-label{font-size:9px}.storage-note{font-size:9px}}
+
+
+.mobile-nav {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .mobile-nav {
+    display: flex;
+    gap: 8px;
+    padding: 10px 12px;
+    overflow-x: auto;
+    background: #101014;
+    border-bottom: 1px solid #ffffff15;
+  }
+
+  .mobile-nav button {
+    flex: 0 0 auto;
+    padding: 9px 12px;
+    border: 1px solid #ffffff20;
+    border-radius: 9px;
+    background: #ffffff08;
+    color: #eeeaf8;
+    font-size: 12px;
+  }
+}

@@ -125,6 +125,25 @@ export default function App() {
   const bassRef = useRef(null)
   const trebleRef = useRef(null)
   const compressorRef = useRef(null)
+  const navigationTimerRef = useRef(null)
+  const [isNavigating, setIsNavigating] = useState(false)
+
+  const navigateToSection = (nextSection) => {
+    if (nextSection === section) {
+      document.querySelector('.tracks-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      return
+    }
+
+    setIsNavigating(true)
+    setSection(nextSection)
+
+    // Wait for React to render the selected collection before scrolling to it.
+    window.requestAnimationFrame(() => {
+      document.querySelector('.tracks-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      window.clearTimeout(navigationTimerRef.current)
+      navigationTimerRef.current = window.setTimeout(() => setIsNavigating(false), 360)
+    })
+  }
 
   const allTracks = useMemo(() => [...uploads, ...demoTracks], [uploads])
   useEffect(() => {
@@ -334,6 +353,7 @@ export default function App() {
   useEffect(() => () => {
     objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
     objectUrlsRef.current.clear()
+    window.clearTimeout(navigationTimerRef.current)
     if (audioContextRef.current) audioContextRef.current.close()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -439,18 +459,34 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <>
+      <style>{`
+        @keyframes sonoraSectionEnter {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .tracks-section { scroll-margin-top: 18px; }
+        .tracks-section.section-enter { animation: sonoraSectionEnter 320ms cubic-bezier(.2,.7,.2,1) both; }
+        .mobile-nav { display: none; }
+        .mobile-nav button { transition: background 180ms ease, border-color 180ms ease, transform 180ms ease; }
+        .mobile-nav button:active { transform: scale(.97); }
+        .mobile-nav button.active { background: rgba(139,124,255,.2); border-color: rgba(139,124,255,.65); color: #fff; }
+        .section-switch-indicator { position: fixed; z-index: 1000; top: 12px; left: 50%; transform: translateX(-50%); padding: 8px 12px; border: 1px solid rgba(139,124,255,.35); border-radius: 999px; background: rgba(20,18,31,.94); color: #eeeaf8; font-size: 12px; box-shadow: 0 8px 28px #0003; pointer-events: none; animation: sonoraSectionEnter 180ms ease both; }
+        @media (max-width: 760px) { .mobile-nav { display: flex; gap: 8px; padding: 10px 12px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; background: #101014; border-bottom: 1px solid #ffffff15; } .mobile-nav::-webkit-scrollbar { display: none; } .mobile-nav button { flex: 0 0 auto; padding: 9px 12px; border: 1px solid #ffffff20; border-radius: 9px; background: #ffffff08; color: #eeeaf8; font-size: 12px; white-space: nowrap; } }
+        @media (prefers-reduced-motion: reduce) { .tracks-section.section-enter, .section-switch-indicator { animation: none !important; } .mobile-nav button { transition: none; } }
+      `}</style>
+      <div className="app-shell">
       <aside className="sidebar">
-        <a className="brand" href="#" onClick={(e) => { e.preventDefault(); setSection('Discover') }}>
+        <a className="brand" href="#" onClick={(e) => { e.preventDefault(); navigateToSection('Discover') }}>
           <span className="brand-mark"><AudioLines size={22} /></span>
           <span>sonora<span className="brand-dot">.</span></span>
         </a>
         <div className="side-label">YOUR SPACE</div>
         <nav className="nav-list">
-          <button className={`nav-item ${section === 'Discover' ? 'active' : ''}`} onClick={() => setSection('Discover')}><Radio size={18} /> Discover</button>
-          <button className={`nav-item ${section === 'Your uploads' ? 'active' : ''}`} onClick={() => setSection('Your uploads')}><ListMusic size={18} /> Your uploads <span className="nav-count">{uploads.length}</span></button>
-          <button className={`nav-item ${section === 'Liked' ? 'active' : ''}`} onClick={() => setSection('Liked')}><Heart size={18} /> Liked songs <span className="nav-count">{liked.length}</span></button>
-          <button className={`nav-item ${section === 'YouTube links' ? 'active' : ''}`} onClick={() => setSection('YouTube links')}><Radio size={18} /> YouTube links <span className="nav-count">{youtubeItems.length}</span></button>
+          <button className={`nav-item ${section === 'Discover' ? 'active' : ''}`} onClick={() => navigateToSection('Discover')}><Radio size={18} /> Discover</button>
+          <button className={`nav-item ${section === 'Your uploads' ? 'active' : ''}`} onClick={() => navigateToSection('Your uploads')}><ListMusic size={18} /> Your uploads <span className="nav-count">{uploads.length}</span></button>
+          <button className={`nav-item ${section === 'Liked' ? 'active' : ''}`} onClick={() => navigateToSection('Liked')}><Heart size={18} /> Liked songs <span className="nav-count">{liked.length}</span></button>
+          <button className={`nav-item ${section === 'YouTube links' ? 'active' : ''}`} onClick={() => navigateToSection('YouTube links')}><Radio size={18} /> YouTube links <span className="nav-count">{youtubeItems.length}</span></button>
         </nav>
         <div className="side-label library-label">EXPLORE FREE MUSIC</div>
         <div className="free-links">
@@ -470,6 +506,13 @@ export default function App() {
           <input ref={fileInputRef} className="hidden-input" type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.aac,.flac,.opus" multiple onChange={handleFiles} />
           <input ref={backupInputRef} className="hidden-input" type="file" accept="application/json,.json" onChange={importLibraryBackup} />
         </header>
+
+        <nav className="mobile-nav" aria-label="Music sections">
+          <button className={section === 'Discover' ? 'active' : ''} aria-current={section === 'Discover' ? 'page' : undefined} onClick={() => navigateToSection('Discover')}>Discover</button>
+          <button className={section === 'Your uploads' ? 'active' : ''} aria-current={section === 'Your uploads' ? 'page' : undefined} onClick={() => navigateToSection('Your uploads')}>Uploads <span>({uploads.length})</span></button>
+          <button className={section === 'Liked' ? 'active' : ''} aria-current={section === 'Liked' ? 'page' : undefined} onClick={() => navigateToSection('Liked')}>Liked <span>({liked.length})</span></button>
+          <button className={section === 'YouTube links' ? 'active' : ''} aria-current={section === 'YouTube links' ? 'page' : undefined} onClick={() => navigateToSection('YouTube links')}>YouTube <span>({youtubeItems.length})</span></button>
+        </nav>
 
         <div className="content-scroll">
           <section className="hero">
@@ -497,7 +540,7 @@ export default function App() {
             <div><span className="stat-icon green"><Disc3 size={17} /></span><span><strong>On-device</strong><small>{libraryReady ? 'Saved on this device' : 'Loading library…'}</small></span></div>
           </section>
 
-          <section className="tracks-section">
+          <section key={section} className={`tracks-section ${isNavigating ? 'section-enter' : ''}`}>
             <div className="section-heading">
               <div><div className="eyebrow muted">{section === 'Discover' ? 'YOUR NEXT FAVOURITE' : 'YOUR COLLECTION'}</div><h2>{section === 'Discover' ? 'Made for the moment' : section}</h2></div>
               <span className="track-total">{section === 'YouTube links' ? `${youtubeItems.length} links` : `${visibleTracks.length} tracks`}</span>
@@ -596,6 +639,8 @@ export default function App() {
       </section>
       <audio ref={audioRef} onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)} onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)} onEnded={() => repeat && audioRef.current ? (audioRef.current.currentTime = 0, audioRef.current.play()) : playNext()} preload="metadata" />
       {notice && <div className="toast" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Dismiss message"><X size={15} /></button></div>}
-    </div>
+      {isNavigating && <div className="section-switch-indicator" role="status" aria-live="polite">Opening {section}…</div>}
+      </div>
+    </>
   )
 }
