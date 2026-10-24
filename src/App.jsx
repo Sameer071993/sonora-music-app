@@ -226,13 +226,19 @@ export default function App() {
 
   const addYoutubeLink = (event) => {
     event?.preventDefault()
+    const originalUrl = youtubeUrl.trim()
     let videoId = ''
+    let modifiedUrl = ''
     try {
-      const parsed = new URL(youtubeUrl.trim())
-      if (parsed.hostname === 'youtu.be' || parsed.hostname.endsWith('.youtu.be')) videoId = parsed.pathname.split('/').filter(Boolean)[0] || ''
-      else if (parsed.hostname === 'youtube.com' || parsed.hostname.endsWith('.youtube.com') || parsed.hostname === 'm.youtube.com') {
+      const parsed = new URL(originalUrl)
+      const hostname = parsed.hostname.toLowerCase()
+      if (hostname === 'youtu.be' || hostname.endsWith('.youtu.be')) {
+        videoId = parsed.pathname.split('/').filter(Boolean)[0] || ''
+      } else if (hostname === 'youtube.com' || hostname.endsWith('.youtube.com')) {
         videoId = parsed.searchParams.get('v') || parsed.pathname.match(/\/(?:shorts|embed|live)\/([^/?]+)/)?.[1] || ''
       }
+      // Change only the youtube.com hostname text; preserve the rest of the URL.
+      modifiedUrl = originalUrl.replace(/youtube(?=\.com)/i, 'yout-ube')
     } catch { /* invalid URL */ }
     if (!/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
       setNotice('Paste a valid YouTube video URL, such as youtube.com/watch?v=…')
@@ -242,10 +248,10 @@ export default function App() {
       setNotice('That YouTube link is already in your collection.')
       return
     }
-    setYoutubeItems((items) => [{ id: `yt-${videoId}`, videoId, url: `https://www.youtube.com/watch?v=${videoId}`, title: `YouTube video · ${videoId}`, addedAt: Date.now() }, ...items])
+    setYoutubeItems((items) => [{ id: `yt-${videoId}`, videoId, url: modifiedUrl, title: `YouTube video · ${videoId}`, addedAt: Date.now() }, ...items])
     setYoutubeUrl('')
     setSection('YouTube links')
-    setNotice('YouTube link added to your collection. It opens on YouTube for playback.')
+    setNotice('Link added. Select “Watch Ad-Free Video” to open it.')
   }
   const activeTrack = allTracks.find((track) => track.id === activeId) || allTracks[0]
   const visibleTracks = useMemo(() => {
@@ -502,7 +508,34 @@ export default function App() {
                 <div className="youtube-input-row"><input type="url" value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.target.value)} placeholder="Paste YouTube video URL here…" aria-label="YouTube video URL" required /><button className="primary-button" type="submit"><Plus size={16} /> Add link</button></div>
                 <p className="youtube-disclaimer">This section saves video links only; it does not save their audio. To build your private music library, download audio you are allowed to use from a free music source, then tap <strong>Add music</strong> and select the file. Uploaded audio is stored on this device in your browser.</p>
               </form>
-              {youtubeItems.length ? <div className="youtube-link-list">{youtubeItems.filter((item) => !query.trim() || item.title.toLowerCase().includes(query.toLowerCase()) || item.videoId.toLowerCase().includes(query.toLowerCase())).map((item) => <div className="youtube-link-row" key={item.id}><img src={`https://i.ytimg.com/vi/${item.videoId}/mqdefault.jpg`} alt="" /><div className="youtube-link-meta"><strong>{item.title}</strong><span>YouTube · Opens in a new tab</span></div><a className="youtube-open" href={item.url} target="_blank" rel="noreferrer" aria-label="Open video on YouTube"><ExternalLink size={17} /></a><button className="icon-button" onClick={() => setYoutubeItems((items) => items.filter((entry) => entry.id !== item.id))} aria-label="Remove YouTube link"><X size={17} /></button></div>)}</div> : <div className="empty-state"><div className="empty-icon"><Radio size={27} /></div><h3>Your saved video links will appear here</h3><p>Paste a YouTube link above to save a shortcut. To save a song itself, upload an audio file.</p></div>}
+              {youtubeItems.length ? <div className="youtube-link-list">{youtubeItems.filter((item) => !query.trim() || item.title.toLowerCase().includes(query.toLowerCase()) || item.videoId.toLowerCase().includes(query.toLowerCase())).map((item) => <div className="youtube-link-row" key={item.id}><img src={`https://i.ytimg.com/vi/${item.videoId}/mqdefault.jpg`} alt="" /><div className="youtube-link-meta"><strong>{item.title}</strong><span>YouTube · Opens in a new tab</span></div><a
+                  href={item.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Watch Ad-Free Video"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    padding: '10px 14px',
+                    borderRadius: '10px',
+                    border: '1px solid rgba(139, 124, 255, 0.4)',
+                    background: 'linear-gradient(135deg, #6555e8, #8b5cf6)',
+                    color: '#ffffff',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    textDecoration: 'none',
+                    whiteSpace: 'nowrap',
+                    cursor: 'pointer',
+                    transition: 'opacity 0.2s ease, transform 0.2s ease',
+                  }}
+                  onMouseEnter={(event) => { event.currentTarget.style.opacity = '0.9'; event.currentTarget.style.transform = 'translateY(-1px)' }}
+                  onMouseLeave={(event) => { event.currentTarget.style.opacity = '1'; event.currentTarget.style.transform = 'translateY(0)' }}
+                >
+                  <ExternalLink size={16} />
+                  <span>Watch Ad-Free Video</span>
+                </a><button className="icon-button" onClick={() => setYoutubeItems((items) => items.filter((entry) => entry.id !== item.id))} aria-label="Remove YouTube link"><X size={17} /></button></div>)}</div> : <div className="empty-state"><div className="empty-icon"><Radio size={27} /></div><h3>Your saved video links will appear here</h3><p>Paste a YouTube link above to save a shortcut. To save a song itself, upload an audio file.</p></div>}
             </div> : visibleTracks.length ? <div className="track-list">
               <div className="track-head"><span>#</span><span>TRACK</span><span>COLLECTION</span><span>TIME</span><span></span></div>
               {visibleTracks.map((track, index) => (
