@@ -256,8 +256,11 @@ export default function App() {
       } else if (hostname === 'youtube.com' || hostname.endsWith('.youtube.com')) {
         videoId = parsed.searchParams.get('v') || parsed.pathname.match(/\/(?:shorts|embed|live)\/([^/?]+)/)?.[1] || ''
       }
-      // Change only the youtube.com hostname text; preserve the rest of the URL.
-      modifiedUrl = originalUrl.replace(/youtube(?=\.com)/i, 'yout-ube')
+      // Normalize every supported YouTube URL (including mobile and youtu.be
+      // share links) to the same redirect URL used by desktop.
+      if (/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+        modifiedUrl = `https://www.yout-ube.com/watch?v=${videoId}`
+      }
     } catch { /* invalid URL */ }
     if (!/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
       setNotice('Paste a valid YouTube video URL, such as youtube.com/watch?v=…')
