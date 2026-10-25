@@ -256,11 +256,8 @@ export default function App() {
       } else if (hostname === 'youtube.com' || hostname.endsWith('.youtube.com')) {
         videoId = parsed.searchParams.get('v') || parsed.pathname.match(/\/(?:shorts|embed|live)\/([^/?]+)/)?.[1] || ''
       }
-      // Normalize every supported YouTube URL (including mobile and youtu.be
-      // share links) to the same redirect URL used by desktop.
-      if (/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
-        modifiedUrl = `https://www.yout-ube.com/watch?v=${videoId}`
-      }
+      // Change only the youtube.com hostname text; preserve the rest of the URL.
+      modifiedUrl = originalUrl.replace(/youtube(?=\.com)/i, 'yout-ube')
     } catch { /* invalid URL */ }
     if (!/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
       setNotice('Paste a valid YouTube video URL, such as youtube.com/watch?v=…')
@@ -311,6 +308,7 @@ export default function App() {
     })
     else audio.pause()
   }, [playing, activeId])
+
 
   useEffect(() => {
     if (!enhancer) return
@@ -381,6 +379,48 @@ export default function App() {
     const index = list.findIndex((track) => track.id === activeId)
     chooseTrack(list[(index - 1 + list.length) % list.length] || allTracks[0])
   }
+
+  // Register Sonora as the active media session so Android can keep audio
+  // associated with a media app and expose lock-screen / notification controls.
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return
+    const session = navigator.mediaSession
+    const audio = audioRef.current
+
+    try {
+      if (activeTrack && 'MediaMetadata' in window) {
+        session.metadata = new window.MediaMetadata({
+          title: activeTrack.title || 'Sonora',
+          artist: activeTrack.artist || 'Your library',
+          album: activeTrack.album || 'Sonora',
+        })
+      }
+      session.playbackState = playing ? 'playing' : 'paused'
+    } catch { /* Media Session support varies by browser. */ }
+
+    const run = (action, handler) => {
+      try { session.setActionHandler(action, handler) } catch { /* Unsupported action. */ }
+    }
+    run('play', () => setPlaying(true))
+    run('pause', () => setPlaying(false))
+    run('previoustrack', playPrevious)
+    run('nexttrack', playNext)
+    run('seekbackward', (details) => {
+      if (audio) audio.currentTime = Math.max(0, audio.currentTime - (details.seekOffset || 10))
+    })
+    run('seekforward', (details) => {
+      if (audio) audio.currentTime = Math.min(audio.duration || Infinity, audio.currentTime + (details.seekOffset || 10))
+    })
+    run('seekto', (details) => {
+      if (audio && Number.isFinite(details.seekTime)) audio.currentTime = details.seekTime
+    })
+
+    return () => {
+      for (const action of ['play', 'pause', 'previoustrack', 'nexttrack', 'seekbackward', 'seekforward', 'seekto']) {
+        try { session.setActionHandler(action, null) } catch { /* Unsupported action. */ }
+      }
+    }
+  }, [activeTrack, playing, playPrevious, playNext])
 
   const handleFiles = (event) => {
     const audioExtensions = /\.(mp3|m4a|wav|ogg|oga|aac|flac|opus|weba|aiff?)$/i
