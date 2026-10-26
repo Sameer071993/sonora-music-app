@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Youtube, Search, Plus, Play, ExternalLink, Trash2, ListVideo,
   X, Link2, ArrowUpRight, Clock3, Menu
@@ -66,6 +66,11 @@ export default function App() {
   })
   const [notice, setNotice] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
+  const queueRef = useRef(queue)
+  const playerHostRef = useRef(null)
+  const ytPlayerRef = useRef(null)
+
+  useEffect(() => { queueRef.current = queue }, [queue])
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
@@ -78,12 +83,94 @@ export default function App() {
     localStorage.setItem(QUEUE_KEY, JSON.stringify(queue))
   }, [queue])
 
+  // Mount YouTube's API into a manually-created child. Never let the API replace
+  // a DOM node that React itself owns; doing so can cause removeChild errors.
+  useEffect(() => {
+    const host = playerHostRef.current
+    if (!activeId || !host) return undefined
+
+    let cancelled = false
+    let instance = null
+    const target = document.createElement('div')
+    target.className = 'yt-player-api-target'
+    host.appendChild(target)
+
+    const createPlayer = () => {
+      if (cancelled || !host.contains(target) || !window.YT?.Player) return
+      try {
+        instance = new window.YT.Player(target, {
+          videoId: activeId,
+          width: '100%',
+          height: '100%',
+          playerVars: { autoplay: 1, rel: 0, playsinline: 1, origin: window.location.origin },
+          events: {
+            onReady: (event) => {
+              if (cancelled) return
+              try { event.target.playVideo() } catch { /* Browser autoplay may require a click. */ }
+            },
+            onStateChange: (event) => {
+              if (cancelled || event.data !== window.YT.PlayerState.ENDED) return
+              const next = queueRef.current[0]
+              if (!next) return
+              setQueue((current) => {
+                const index = current.findIndex((item) => item.videoId === next.videoId)
+                return index < 0 ? current : current.filter((_, i) => i !== index)
+              })
+              setActiveId(next.videoId)
+            },
+            onError: () => {
+              if (!cancelled) setNotice('This video cannot play in the embedded player. Try another video or open its YouTube link.')
+            },
+          },
+        })
+        ytPlayerRef.current = instance
+      } catch {
+        if (!cancelled) setNotice('The YouTube player could not be loaded. Check your connection and try again.')
+      }
+    }
+
+    const existingScript = document.querySelector('script[data-sonora-youtube-api]')
+    if (window.YT?.Player) {
+      createPlayer()
+    } else {
+      // Keep one global readiness callback and let the current effect mount its player.
+      const previousReady = window.onYouTubeIframeAPIReady
+      window.onYouTubeIframeAPIReady = () => {
+        if (typeof previousReady === 'function') previousReady()
+        createPlayer()
+      }
+      if (!existingScript) {
+        const script = document.createElement('script')
+        script.src = 'https://www.youtube.com/iframe_api'
+        script.async = true
+        script.dataset.sonoraYoutubeApi = 'true'
+        script.onerror = () => { if (!cancelled) setNotice('Could not load YouTube. Check your internet connection.') }
+        document.head.appendChild(script)
+      }
+    }
+
+    return () => {
+      cancelled = true
+      if (instance) {
+        try { instance.destroy() } catch { /* Player may already be disposed. */ }
+        if (ytPlayerRef.current === instance) ytPlayerRef.current = null
+      }
+      // The host is an empty React-owned node; its manually-created child is ours.
+      try { host.replaceChildren() } catch { /* Host may already be detached. */ }
+    }
+  }, [activeId])
+
   const activeItem = useMemo(() => items.find((item) => item.videoId === activeId) || queue.find((item) => item.videoId === activeId), [items, queue, activeId])
   const filteredItems = useMemo(() => {
     const term = search.trim().toLowerCase()
     if (!term) return items
     return items.filter((item) => item.title.toLowerCase().includes(term) || item.videoId.toLowerCase().includes(term))
   }, [items, search])
+
+  function playVideo(videoId) {
+    setActiveId(videoId)
+    window.setTimeout(() => document.querySelector('.yt-player-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60)
+  }
 
   function addLink(event) {
     event.preventDefault()
@@ -109,7 +196,7 @@ export default function App() {
         addedAt: Date.now(),
       }
       setItems((current) => [item, ...current])
-      setActiveId(videoId)
+      playVideo(videoId)
       setUrl('')
       setNotice('Saved the appended link. It will remain in your list on this browser.')
     } catch {
@@ -185,7 +272,16 @@ export default function App() {
         .yt-list-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 0 16px; }
         .yt-video-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px 16px; }
         .yt-video-card { min-width: 0; }
-        .yt-thumb-wrap { position: relative; overflow: hidden; border-radius: 12px; aspect-ratio: 16 / 9; background: #272727; }
+        .yt-thumb-wrap { position: relative; overflow: hidden; border-radius: 12px; aspect-ratio: 16 / 9; background: #272727; cursor: pointer; border: 0; padding: 0; width: 100%; display: block; text-align: left; }
+        .yt-thumb-wrap:focus-visible { outline: 2px solid #3ea6ff; outline-offset: 3px; }
+        .yt-thumb-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: #0000; transition: background .18s ease; }
+        .yt-thumb-wrap:hover .yt-thumb-overlay { background: #0006; }
+        .yt-playing-badge { display: inline-flex; align-items: center; gap: 7px; padding: 8px 11px; border-radius: 999px; background: #ff0033; color: white; font-size: 12px; font-weight: 700; box-shadow: 0 4px 18px #0008; }
+        .yt-playing-badge svg { animation: sonora-pulse 1.25s ease-in-out infinite; }
+        @keyframes sonora-pulse { 50% { opacity: .45; transform: scale(.9); } }
+        .yt-player-frame { width: 100%; height: 100%; }
+        .yt-player-api-target { width: 100%; height: 100%; }
+        .yt-player-frame iframe { display: block; width: 100%; height: 100%; border: 0; }
         .yt-thumb { width: 100%; height: 100%; display: block; object-fit: cover; }
         .yt-card-body { display: flex; align-items: flex-start; gap: 10px; padding-top: 12px; }
         .yt-mini-icon { flex: 0 0 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: #272727; color: #ff0033; }
@@ -241,13 +337,13 @@ export default function App() {
               <input type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="Paste a YouTube video URL here…" aria-label="YouTube video URL" required />
               <button className="yt-red-button" type="submit"><Plus size={18} /> Save link</button>
             </form>
-            <p className="yt-subtle">The appended link format is saved when you add the video, so you do not need to append it again. Duplicate video IDs are skipped.</p>
+            {/* <p className="yt-subtle">The appended link format is saved when you add the video, so you do not need to append it again. Duplicate video IDs are skipped.</p> */}
           </section>
 
           <section className="yt-player-section">
             <h2 className="yt-player-title">{activeItem ? activeItem.title : 'Play a saved video'}</h2>
             {activeId ? (
-              <div className="yt-player"><iframe key={activeId} src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(activeId)}?autoplay=1&rel=0`} title={activeItem?.title || 'YouTube video player'} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen /></div>
+              <div className="yt-player"><div className="yt-player-frame" ref={playerHostRef} /></div>
             ) : (
               <div className="yt-player-empty"><div><Youtube size={42} /><strong>Your player is ready</strong><span>Add a link or choose a saved video below.</span></div></div>
             )}
@@ -256,17 +352,19 @@ export default function App() {
 
           {queue.length > 0 && <section className="yt-queue" id="queue">
             <h2 className="yt-section-title">Up next <span style={{ color: '#aaa', fontSize: 14 }}>{queue.length} videos</span></h2>
-            {queue.map((item, index) => <div className="yt-queue-row" key={`${item.videoId}-${index}`}><span className="yt-queue-name">{index + 1}. {item.title}</span><div style={{ display: 'flex', gap: 8 }}><button className="yt-small-button primary" onClick={() => { setActiveId(item.videoId); setQueue((current) => current.filter((entry, i) => !(entry.videoId === item.videoId && i === index))) }}><Play size={14} /> Play</button><button className="yt-small-button" aria-label="Remove from queue" onClick={() => setQueue((current) => current.filter((_, i) => i !== index))}><X size={15} /></button></div></div>)}
+            {queue.map((item, index) => <div className="yt-queue-row" key={`${item.videoId}-${index}`}><span className="yt-queue-name">{index + 1}. {item.title}</span><div style={{ display: 'flex', gap: 8 }}><button className="yt-small-button primary" onClick={() => { playVideo(item.videoId); setQueue((current) => current.filter((entry, i) => !(entry.videoId === item.videoId && i === index))) }}><Play size={14} /> Play</button><button className="yt-small-button" aria-label="Remove from queue" onClick={() => setQueue((current) => current.filter((_, i) => i !== index))}><X size={15} /></button></div></div>)}
           </section>}
 
           <section id="saved-videos">
             <div className="yt-list-heading"><h2 className="yt-section-title" style={{ margin: 0 }}>Saved videos</h2><span style={{ color: '#aaa', fontSize: 13 }}>{filteredItems.length} videos</span></div>
             {filteredItems.length ? <div className="yt-video-grid">{filteredItems.map((item) => <article className="yt-video-card" key={item.id}>
-              <div className="yt-thumb-wrap"><img className="yt-thumb" src={`https://i.ytimg.com/vi/${item.videoId}/mqdefault.jpg`} alt="" loading="lazy" /></div>
+              <button className="yt-thumb-wrap" onClick={() => playVideo(item.videoId)} aria-label={activeId === item.videoId ? `Now playing ${item.title}` : `Play ${item.title}`}>
+                <img className="yt-thumb" src={`https://i.ytimg.com/vi/${item.videoId}/mqdefault.jpg`} alt="" loading="lazy" />
+                <span className="yt-thumb-overlay">{activeId === item.videoId ? <span className="yt-playing-badge"><Play size={14} fill="currentColor" /> PLAYING</span> : <Play size={42} fill="white" color="white" />}</span>
+              </button>
               <div className="yt-card-body"><div className="yt-mini-icon"><Youtube size={18} fill="currentColor" /></div><div className="yt-card-info">
                 <h3 className="yt-card-title">{item.title}</h3><p className="yt-card-meta">Saved to Sonora · {new Date(item.addedAt).toLocaleDateString()}</p>
                 <div className="yt-actions">
-                  <button className="yt-small-button primary" onClick={() => setActiveId(item.videoId)}><Play size={14} fill="currentColor" /> Play here</button>
                   <button className="yt-small-button" onClick={() => addToQueue(item)}><Plus size={14} /> Queue</button>
                   <a className="yt-small-button" href={item.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}><ExternalLink size={14} /> Appended link</a>
                   <button className="yt-small-button danger" aria-label="Delete saved video" onClick={() => { setItems((current) => current.filter((entry) => entry.videoId !== item.videoId)); setQueue((current) => current.filter((entry) => entry.videoId !== item.videoId)); if (activeId === item.videoId) setActiveId(''); setNotice('Removed saved video.') }}><Trash2 size={14} /> Remove</button>
