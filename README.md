@@ -54,3 +54,22 @@ This project is configured for a repository named `sonora-music-app` (the site U
 5. Open `https://YOUR-GITHUB-USERNAME.github.io/sonora-music-app/`.
 
 The app stores imported audio in the current browser/device using IndexedDB; it does not automatically sync audio between devices. Use the in-app backup feature for your library.
+
+
+## Android: share a YouTube video to Sonora
+
+Sonora is configured as an Android Web Share Target. To use it:
+
+1. Deploy the app to GitHub Pages using the existing GitHub Actions workflow.
+2. Open the deployed Sonora site in Chrome on Android.
+3. Choose **Install app** or **Add to Home screen** and complete installation.
+4. Open the YouTube app, choose **Share** on a video, and select **Sonora**.
+5. Sonora opens with the shared YouTube URL filled into the Add a YouTube link field. Review it and tap **Save link**.
+
+The share target accepts the URL in either the `url` or `text` field because Android share providers may send it in different fields. The shared query is removed from the address bar after import so refreshing Sonora does not re-import the same link.
+
+If Sonora does not appear in Android's Share list, update/reinstall the installed PWA after deploying the new manifest, then try again. Share Target availability depends on browser and operating-system support.
+
+## Background playback note
+
+YouTube videos in Sonora are played by an external, cross-origin player. A web app cannot reliably override that provider's background-playback or screen-lock restrictions. Playback may continue on some device/browser/provider combinations, but Sonora cannot guarantee it. The existing player controls and playback behavior have intentionally been left unchanged rather than adding a misleading background-playback switch.

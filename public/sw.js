@@ -1,5 +1,5 @@
 const BASE_URL = new URL('./', self.registration.scope).pathname
-const CACHE_NAME = 'sonora-shell-v3'
+const CACHE_NAME = 'sonora-shell-v4'
 const APP_SHELL = [
   BASE_URL,
   `${BASE_URL}index.html`,
