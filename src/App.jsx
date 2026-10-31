@@ -212,7 +212,7 @@ export default function App() {
     const [notice, setNotice] = useState('');
     const [showStartupLoader, setShowStartupLoader] = useState(true);
 
-    const [menuOpen, setMenuOpen] = useState(false);
+    const [navPill, setNavPill] = useState('all'); // last clicked top pill (stays highlighted)
 
     const triedTitles = useRef(new Set());
 
@@ -220,8 +220,19 @@ export default function App() {
 
     useEffect(() => {
         // Brief branded intro on every fresh app load or page refresh.
-        const loaderTimer = window.setTimeout(() => setShowStartupLoader(false), 2400);
+        const loaderTimer = window.setTimeout(() => setShowStartupLoader(false), 600);
         return () => window.clearTimeout(loaderTimer);
+    }, []);
+
+    useEffect(() => {
+        // Give the clicked button focus on every browser (Safari/iOS don't do it by default),
+        // so the highlighted colour stays on it until another element is clicked.
+        const focusClicked = (event) => {
+            const button = event.target.closest ? event.target.closest('button') : null;
+            if (button && !button.disabled) button.focus({ preventScroll: true });
+        };
+        document.addEventListener('click', focusClicked);
+        return () => document.removeEventListener('click', focusClicked);
     }, []);
 
     useEffect(() => {
@@ -671,6 +682,21 @@ export default function App() {
         setNotice(`Playing "${lib.name}". The remaining videos are in your queue.`);
     }
 
+    // Adds every video of a library to the end of the queue (skips ones already queued).
+    function addLibraryToQueue(lib) {
+        if (!lib.videos.length) {
+            setNotice('This library has no videos yet.');
+            return;
+        }
+        const have = new Set(queue.map((entry) => entry.videoId));
+        const added = lib.videos.filter((video) => !have.has(video.videoId)).length;
+        setQueue((current) => {
+            const existing = new Set(current.map((entry) => entry.videoId));
+            return [...current, ...lib.videos.filter((video) => !existing.has(video.videoId))];
+        });
+        setNotice(added ? `Added ${added} video${added === 1 ? '' : 's'} from "${lib.name}" to the queue.` : `All videos from "${lib.name}" are already in the queue.`);
+    }
+
     function addLink(event) {
 
         event.preventDefault();
@@ -915,6 +941,8 @@ export default function App() {
 
         body { margin: 0; background: #0f0f0f; }
 
+        html { scroll-padding-top: 140px; }
+
         button, input { font: inherit; }
 
         button { cursor: pointer; }
@@ -943,7 +971,7 @@ export default function App() {
         @keyframes sonora-bars { from { height: 5px; opacity: .65; } to { height: 24px; opacity: 1; } }
         @media (prefers-reduced-motion: reduce) { .sonora-vinyl, .sonora-loader-orbit, .sonora-intro::before, .sonora-intro::after, .sonora-equalizer span { animation-duration: 2.5s; } }
 
-        .yt-header { height: 64px; padding: 0 4%; display: flex; align-items: center; gap: 22px; position: sticky; top: 0; z-index: 5; background: #0f0f0f; border-bottom: 1px solid #272727; }
+        .yt-header { height: 64px; padding: 0 4%; display: flex; align-items: center; gap: 22px; position: fixed; top: 0; left: 0; right: 0; z-index: 50; background: #0f0f0f; border-bottom: 1px solid #272727; }
 
         .yt-brand { display: flex; align-items: center; gap: 8px; color: #f1f1f1; font-weight: 700; font-size: 20px; letter-spacing: -.6px; white-space: nowrap; }
 
@@ -957,7 +985,7 @@ export default function App() {
 
         .yt-search button { width: 64px; display: grid; place-items: center; border: 1px solid #303030; border-radius: 0 22px 22px 0; background: #222; color: #f1f1f1; }
 
-        .yt-layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); min-height: calc(100vh - 64px); }
+        .yt-layout { display: block; margin-top: 64px; min-height: calc(100vh - 64px); }
 
         .yt-sidebar { padding: 18px 12px; border-right: 1px solid #272727; }
 
@@ -969,9 +997,13 @@ export default function App() {
 
         .yt-main { width: 100%; max-width: 1600px; padding: 24px clamp(16px, 3vw, 44px) 80px; margin: 0 auto; }
 
-        .yt-pills { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 22px; scrollbar-width: none; }
+        .yt-pills { display: flex; gap: 10px; overflow-x: auto; padding: 12px 0; margin-bottom: 10px; scrollbar-width: none; -webkit-overflow-scrolling: touch; position: sticky; top: 64px; z-index: 40; background: #0f0f0f; border-bottom: 1px solid #272727; }
 
-        .yt-pill { white-space: nowrap; border: 0; border-radius: 8px; padding: 9px 13px; background: #272727; color: #f1f1f1; font-size: 14px; }
+        .yt-pill { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; white-space: nowrap; border: 0; border-radius: 8px; padding: 9px 13px; background: #272727; color: #f1f1f1; font-size: 14px; }
+
+        .yt-pill-count { min-width: 20px; padding: 1px 6px; border-radius: 10px; background: #3f3f3f; color: #f1f1f1; font-size: 11px; font-weight: 700; line-height: 1.5; text-align: center; }
+
+        .yt-pill.selected .yt-pill-count, .yt-pill:focus .yt-pill-count { background: #ffffff33; color: #fff; }
 
         .yt-pill.selected { background: #f1f1f1; color: #0f0f0f; }
 
@@ -1089,6 +1121,24 @@ export default function App() {
         .yt-video-grid .yt-small-button.icon { width: 30px; height: 30px; padding: 0; }
         .yt-small-button:disabled { opacity: .45; cursor: not-allowed; }
 
+        /* Button click highlight */
+        button { -webkit-tap-highlight-color: #ff003355; }
+        .yt-small-button, .yt-pill, .yt-red-button, .yt-side-button, .yt-seg button { transition: background .12s ease, color .12s ease, transform .12s ease, box-shadow .12s ease; }
+        .yt-small-button:active:not(:disabled), .yt-small-button.primary:active:not(:disabled), .yt-small-button.danger:active:not(:disabled) { background: #ff0033; color: #fff; transform: scale(.93); box-shadow: 0 0 0 3px #ff003355; }
+        .yt-pill:active, .yt-pill.selected:active { background: #ff0033; color: #fff; transform: scale(.96); }
+        .yt-red-button:active { background: #8f001e; transform: scale(.97); box-shadow: 0 0 0 3px #ff003355; }
+        .yt-side-button:active { background: #ff003344; }
+        .yt-seg button:active { background: #ff0033; color: #fff; }
+        .yt-thumb-wrap:active .yt-thumb-overlay { background: #ff003366; }
+        .yt-library-thumb:active { outline: 2px solid #ff0033; }
+        .yt-small-button:focus-visible, .yt-pill:focus-visible, .yt-red-button:focus-visible, .yt-side-button:focus-visible { outline: 2px solid #3ea6ff; outline-offset: 2px; }
+        /* Clicked button keeps the highlight colour (focus) until something else is clicked */
+        .yt-small-button:focus:not(:disabled), .yt-small-button.primary:focus:not(:disabled), .yt-small-button.danger:focus:not(:disabled), .yt-seg button:focus { background: #ff0033; color: #fff; }
+        .yt-red-button:focus { background: #b3001f; box-shadow: 0 0 0 3px #ff003355; }
+        .yt-pill.selected, .yt-pill:focus { background: #ff0033; color: #fff; }
+        .yt-side-button.active, .yt-side-button:focus { background: #ff0033; color: #fff; }
+        .yt-side-button.active:hover, .yt-pill.selected:hover { background: #cc0029; }
+
         /* Library */
         .yt-library-panel { border: 1px solid #303030; border-radius: 14px; background: #161616; padding: 16px; margin: 24px 0 34px; }
         .yt-library-target { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: #aaa; font-size: 13px; margin: 4px 0 12px; }
@@ -1119,9 +1169,9 @@ export default function App() {
 
         .yt-menu-button { display: none; background: transparent; border: 0; color: #f1f1f1; }
 
-        @media (max-width: 1050px) { .yt-video-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .yt-layout { grid-template-columns: 190px minmax(0, 1fr); } }
+        @media (max-width: 1050px) { .yt-video-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 
-        @media (max-width: 700px) { .yt-header { height: 58px; padding: 0 12px; gap: 12px; } .yt-brand { font-size: 17px; } .yt-brand-word { display: none; } .yt-search { width: auto; flex: 1; } .yt-search input { padding: 0 12px; } .yt-search button { width: 46px; } .yt-layout { display: block; min-height: calc(100vh - 58px); } .yt-sidebar { display: ${menuOpen ? 'block' : 'none'}; position: fixed; z-index: 6; top: 58px; left: 0; bottom: 0; width: 230px; background: #0f0f0f; box-shadow: 12px 0 24px #0007; } .yt-menu-button { display: flex; } .yt-main { padding: 16px 12px 60px; } .yt-video-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 10px; } .yt-add-form { flex-direction: column; } .yt-add-form .yt-red-button { width: 100%; } .yt-player { border-radius: 9px; } .yt-add-panel { padding: 14px; } .yt-section-title { font-size: 18px; } }
+        @media (max-width: 700px) { .yt-header { height: 58px; padding: 0 12px; gap: 12px; } .yt-brand { font-size: 17px; } .yt-brand-word { display: none; } .yt-search { width: auto; flex: 1; } .yt-search input { padding: 0 12px; } .yt-search button { width: 46px; } .yt-pills { top: 58px; } .yt-layout { margin-top: 58px; min-height: calc(100vh - 58px); } .yt-pill { padding: 8px 11px; font-size: 13px; gap: 5px; } .yt-main { padding: 16px 12px 60px; } .yt-video-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 10px; } .yt-add-form { flex-direction: column; } .yt-add-form .yt-red-button { width: 100%; } .yt-player { border-radius: 9px; } .yt-add-panel { padding: 14px; } .yt-section-title { font-size: 18px; } }
 
       `}</style>
 
@@ -1142,8 +1192,6 @@ export default function App() {
 
       <header className="yt-header">
 
-        <button className="yt-menu-button" aria-label="Toggle menu" onClick={() => setMenuOpen((open) => !open)}><Menu size={22}/></button>
-
         <div className="yt-brand"><span className="yt-brand-icon"><Youtube size={30} fill="currentColor"/></span><span className="yt-brand-word">Sonora</span></div>
 
         <form className="yt-search" onSubmit={(event) => { event.preventDefault(); openSearch(); }}>
@@ -1160,19 +1208,7 @@ export default function App() {
 
       <div className="yt-layout">
 
-        <aside className="yt-sidebar">
 
-          <button className="yt-side-button active" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><Play size={20} fill="currentColor"/> Home</button>
-
-          <button className="yt-side-button" onClick={() => document.getElementById('saved-videos')?.scrollIntoView({ behavior: 'smooth' })}><ListVideo size={20}/> Saved videos <span>{items.length}</span></button>
-
-          <button className="yt-side-button" onClick={() => document.getElementById('queue')?.scrollIntoView({ behavior: 'smooth' })}><Clock3 size={20}/> Queue <span>{queue.length}</span></button>
-          <button className="yt-side-button" onClick={() => document.getElementById('libraries')?.scrollIntoView({ behavior: 'smooth' })}><Library size={20}/> Library <span>{libraries.length}</span></button>
-          <button className="yt-side-button" onClick={() => document.getElementById('cloud-sync')?.scrollIntoView({ behavior: 'smooth' })}><Cloud size={20}/> Cloud sync</button>
-
-          <p className="yt-side-note">Your library is stored locally. Optional cloud sync requires your own Supabase setup. Playback behavior depends on the external player.</p>
-
-        </aside>
 
 
 
@@ -1180,16 +1216,21 @@ export default function App() {
 
           <div className="yt-pills">
 
-            <button className="yt-pill selected" onClick={() => setSearch('')}>All</button>
+            <button className={`yt-pill ${navPill === 'all' ? 'selected' : ''}`} onClick={() => { setNavPill('all'); setSearch(''); setShowFavoritesOnly(false); setShowHistory(false); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Play size={14} fill="currentColor"/> All</button>
 
-            <button className="yt-pill" onClick={() => document.getElementById('add-link')?.scrollIntoView({ behavior: 'smooth' })}>Add link</button>
+            <button className={`yt-pill ${navPill === 'add-link' ? 'selected' : ''}`} onClick={() => { setNavPill('add-link'); document.getElementById('add-link')?.scrollIntoView({ behavior: 'smooth' }); }}><Link2 size={14}/> Add link</button>
 
-            <button className="yt-pill" onClick={() => document.getElementById('saved-videos')?.scrollIntoView({ behavior: 'smooth' })}>Saved videos</button>
+            <button className={`yt-pill ${navPill === 'saved' ? 'selected' : ''}`} onClick={() => { setNavPill('saved'); document.getElementById('saved-videos')?.scrollIntoView({ behavior: 'smooth' }); }}><ListVideo size={14}/> Saved videos <span className="yt-pill-count">{items.length}</span></button>
 
-            <button className="yt-pill" onClick={() => { setShowFavoritesOnly((value) => !value); setShowHistory(false); }}>{showFavoritesOnly ? 'All videos' : 'Favorites'}</button>
-            <button className="yt-pill" onClick={() => setShowHistory((value) => !value)}>Watch history</button>
-            <button className="yt-pill" onClick={() => document.getElementById('libraries')?.scrollIntoView({ behavior: 'smooth' })}>Library</button>
-            <button className="yt-pill" onClick={() => document.getElementById('queue')?.scrollIntoView({ behavior: 'smooth' })}>Queue</button>
+            <button className={`yt-pill ${navPill === 'favorites' ? 'selected' : ''}`} onClick={() => { setNavPill(showFavoritesOnly ? 'all' : 'favorites'); setShowFavoritesOnly((value) => !value); setShowHistory(false); }}><Heart size={14}/> {showFavoritesOnly ? 'All videos' : 'Favorites'} <span className="yt-pill-count">{favorites.length}</span></button>
+
+            <button className={`yt-pill ${navPill === 'history' ? 'selected' : ''}`} onClick={() => { setNavPill(showHistory ? 'all' : 'history'); setShowHistory((value) => !value); }}><History size={14}/> Watch history <span className="yt-pill-count">{history.length}</span></button>
+
+            <button className={`yt-pill ${navPill === 'library' ? 'selected' : ''}`} onClick={() => { setNavPill('library'); document.getElementById('libraries')?.scrollIntoView({ behavior: 'smooth' }); }}><Library size={14}/> Library <span className="yt-pill-count">{libraries.length}</span></button>
+
+            <button className={`yt-pill ${navPill === 'queue' ? 'selected' : ''}`} onClick={() => { setNavPill('queue'); document.getElementById('queue')?.scrollIntoView({ behavior: 'smooth' }); }}><Clock3 size={14}/> Queue <span className="yt-pill-count">{queue.length}</span></button>
+
+            {/* <button className={`yt-pill ${navPill === 'cloud' ? 'selected' : ''}`} onClick={() => { setNavPill('cloud'); document.getElementById('cloud-sync')?.scrollIntoView({ behavior: 'smooth' }); }}><Cloud size={14}/> Cloud sync</button> */}
 
           </div>
 
@@ -1274,7 +1315,7 @@ export default function App() {
           </section>
 
 
-
+{/* 
           <section className="yt-cloud-panel" id="cloud-sync">
             <h2 className="yt-section-title"><span><Cloud size={20} style={{ verticalAlign: 'middle', marginRight: 8 }}/>Cloud sync</span><span style={{ color: '#aaa', fontSize: 12 }}>{session?.user?.email || 'Not signed in'}</span></h2>
             {!supabase ? (
@@ -1293,7 +1334,7 @@ export default function App() {
               </form>
             )}
             {cloudStatus && <p className="yt-cloud-status" role="status">{cloudStatus}</p>}
-          </section>
+          </section> */}
 
           {showHistory && <section className="yt-queue">
             <h2 className="yt-section-title"><span><History size={20} style={{ verticalAlign: 'middle', marginRight: 8 }}/>Recently played</span><button className="yt-small-button danger icon" onClick={() => { setHistory([]); setNotice('Watch history cleared.'); }} title="Clear history: remove all recently played videos" aria-label="Clear history"><Trash2 size={14}/></button></h2>
@@ -1339,6 +1380,7 @@ export default function App() {
               <div className="yt-library-head">
                 <strong>{lib.name}<span className="yt-library-count">{lib.videos.length} {lib.videos.length === 1 ? 'video' : 'videos'}</span></strong>
                 <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="yt-small-button icon" onClick={() => addLibraryToQueue(lib)} disabled={!lib.videos.length} title="Queue all: add every video in this library to the queue" aria-label="Queue all"><ListPlus size={14}/></button>
                   <button className="yt-small-button primary icon" onClick={() => playLibrary(lib)} disabled={!lib.videos.length} title="Play all: start this playlist; the rest go to your queue" aria-label="Play all"><Play size={14} fill="currentColor"/></button>
                   {isAdmin && <button className="yt-small-button danger icon" onClick={() => deleteLibrary(lib.id)} title="Admin: delete this library" aria-label="Delete library"><Trash2 size={14}/></button>}
                 </div>
