@@ -1172,7 +1172,7 @@ export default function App() {
         .yt-library-thumb { flex: 0 0 96px; width: 96px; aspect-ratio: 16 / 9; border: 0; padding: 0; border-radius: 6px; overflow: hidden; background: #272727; }
         .yt-library-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
         .yt-library-row .yt-queue-name { flex: 1; min-width: 0; }
-        .yt-library-list { height: 420px; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
+        .yt-library-list { height: 420px; overflow-y: auto; overscroll-behavior: auto; padding-right: 4px; }
         .yt-lib-search { display: flex; align-items: center; gap: 8px; height: 38px; margin: 6px 0 12px; padding: 0 12px; border: 1px solid #3f3f3f; border-radius: 22px; background: #0f0f0f; color: #aaa; }
         .yt-lib-search:focus-within { border-color: #1c62b9; }
         .yt-lib-search input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: #f1f1f1; }
@@ -1204,7 +1204,7 @@ export default function App() {
 
         @media (max-width: 1050px) { .yt-video-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 
-        @media (max-width: 700px) { .yt-header { height: 58px; padding: 0 12px; gap: 12px; } .yt-brand { font-size: 17px; } .yt-brand-word { display: none; } .yt-search { width: auto; flex: 1; } .yt-search input { padding: 0 12px; } .yt-search button { width: 46px; } .yt-pills { top: 58px; } .yt-layout { margin-top: 58px; min-height: calc(100vh - 58px); } .yt-pill { padding: 8px 11px; font-size: 13px; gap: 5px; } .yt-main { padding: 16px 12px 60px; } .yt-library-list { height: 360px; } .yt-video-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 10px; } .yt-add-form { flex-direction: column; } .yt-add-form .yt-red-button { width: 100%; } .yt-player { border-radius: 9px; } .yt-add-panel { padding: 14px; } .yt-section-title { font-size: 18px; } }
+        @media (max-width: 700px) { .yt-header { height: 58px; padding: 0 12px; gap: 12px; } .yt-brand { font-size: 17px; } .yt-brand-word { display: none; } .yt-search { width: auto; flex: 1; } .yt-search input { padding: 0 12px; } .yt-search button { width: 46px; } .yt-pills { top: 58px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; overflow: visible; padding: 8px 0; margin-bottom: 8px; } html { scroll-padding-top: 190px; } .yt-layout { margin-top: 58px; min-height: calc(100vh - 58px); } .yt-pill { width: 100%; min-width: 0; justify-content: center; text-align: center; white-space: normal; line-height: 1.2; padding: 7px 4px; font-size: 12px; gap: 4px; } .yt-pill svg { display: none; } .yt-pill-count { min-width: 0; padding: 1px 5px; font-size: 10px; } .yt-main { padding: 16px 12px 60px; } .yt-library-list { height: auto; overflow: visible; padding-right: 0; } .yt-video-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 10px; } .yt-add-form { flex-direction: column; } .yt-add-form .yt-red-button { width: 100%; } .yt-player { border-radius: 9px; } .yt-add-panel { padding: 14px; } .yt-section-title { font-size: 18px; } }
 
       `}</style>
 
