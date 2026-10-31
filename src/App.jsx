@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-// import { createClient } from '@supabase/supabase-js';  
+// import { createClient } from '@supabase/supabase-js';
 
 import { Youtube, Search, Plus, Play, ExternalLink, Trash2, ListVideo, X, Link2, ArrowUpRight, Clock3, Menu, SkipForward, RefreshCw, Copy, Download, Upload, ShieldCheck, Heart, History, Minimize2, Maximize2, Shuffle, Cloud, LogIn, LogOut, ChevronUp, ChevronDown } from 'lucide-react';
 
@@ -200,6 +200,53 @@ export default function App() {
         // Brief branded intro on every fresh app load or page refresh.
         const loaderTimer = window.setTimeout(() => setShowStartupLoader(false), 2400);
         return () => window.clearTimeout(loaderTimer);
+    }, []);
+
+    useEffect(() => {
+        // Android may send the shared URL as `url`, as part of `text`, or
+        // embedded in another share field. Read every query value so browser
+        // and Android variations are handled consistently.
+        const params = new URLSearchParams(window.location.search);
+        const sharedValues = Array.from(params.values()).filter(Boolean);
+
+        const extractCandidates = (value) => {
+            const normalized = String(value)
+                .replace(/&amp;/gi, '&')
+                .replace(/\\u0026/gi, '&');
+            const matches = normalized.match(
+                /(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be|yout-ube\.com)\/[^\s<>"'`]+/gi,
+            ) || [];
+
+            return matches.map((candidate) => {
+                const cleaned = candidate.replace(/[),.;!?\]}]+$/, '');
+                return /^https?:\/\//i.test(cleaned) ? cleaned : `https://${cleaned}`;
+            });
+        };
+
+        const sharedCandidates = sharedValues.flatMap(extractCandidates);
+        const receivedLink = sharedCandidates.find((candidate) => getVideoId(candidate));
+
+        if (receivedLink) {
+            setUrl(receivedLink);
+            setNotice('YouTube link received from Share. Review it, then tap Save link.');
+            window.setTimeout(() => {
+                document.getElementById('add-link')?.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'center',
+                });
+            }, 250);
+        } else if (sharedValues.length) {
+            setNotice('Share opened Sonora, but the shared text did not contain a recognised YouTube URL.');
+        }
+
+        // Clear only the one-time share query after processing it.
+        if (window.location.search) {
+            window.history.replaceState(
+                window.history.state,
+                '',
+                `${window.location.pathname}${window.location.hash}`,
+            );
+        }
     }, []);
 
     useEffect(() => {
