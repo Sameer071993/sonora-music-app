@@ -84,5 +84,76 @@
       }
     ],
     "createdAt": 1793439084265
+  },
+  {
+    "id": "lib-1793463159168",
+    "name": "Bhakti Playlist",
+    "videos": [
+      {
+        "id": "yt-sd31yGqZFlA",
+        "videoId": "sd31yGqZFlA",
+        "url": "https://www.yout-ube.com/watch?v=sd31yGqZFlA",
+        "originalUrl": "https://www.youtube.com/watch?v=sd31yGqZFlA",
+        "title": "Om Jai Jagdish Hare Aarti Sangrah, Best Aarti Collection By Anuradha Paudwal I Audio Juke Box",
+        "addedAt": 1793463256764
+      },
+      {
+        "id": "yt-gFD46BhorTk",
+        "videoId": "gFD46BhorTk",
+        "url": "https://www.yout-ube.com/watch?v=gFD46BhorTk",
+        "originalUrl": "https://www.youtube.com/watch?v=gFD46BhorTk",
+        "title": "आरती अम्बे तू है जगदम्बे काली | Aarti Ambe Tu Hai Jagdambe Kali With Lyrics | ANURADHA PAUDWAL",
+        "addedAt": 1793463256765
+      },
+      {
+        "id": "yt-iTvd5twk35o",
+        "videoId": "iTvd5twk35o",
+        "url": "https://www.yout-ube.com/watch?v=iTvd5twk35o",
+        "originalUrl": "https://www.youtube.com/watch?v=iTvd5twk35o",
+        "title": "Shiv Tandav Stotram (Har Har Shiv Shankar)",
+        "addedAt": 1793463256766
+      },
+      {
+        "id": "yt-R3NxAR60jlo",
+        "videoId": "R3NxAR60jlo",
+        "url": "https://www.yout-ube.com/watch?v=R3NxAR60jlo",
+        "originalUrl": "https://youtu.be/R3NxAR60jlo?si=qG5XgOdW6tb0m0Do",
+        "title": "Nonstop Hanuman Bhajans - Lo-fi Version - Hanuman Chalisa, Sunderkand, Bajrang Baan, Hanuman Ashtak",
+        "addedAt": 1793463582126
+      },
+      {
+        "id": "yt-LaFxyW1aXPQ",
+        "videoId": "LaFxyW1aXPQ",
+        "url": "https://www.yout-ube.com/watch?v=LaFxyW1aXPQ",
+        "originalUrl": "https://youtu.be/LaFxyW1aXPQ?si=c16FbKM04AKF1F9x",
+        "title": "Keejo Kesari Ke Laal ~ कीजो केसरी के लाल | Lakhbir Singh Lakkha Hanuman Bhajan | NonStop Bhajan 🙏🏻",
+        "addedAt": 1793463582127
+      },
+      {
+        "id": "yt-ASb9b3pHglU",
+        "videoId": "ASb9b3pHglU",
+        "url": "https://www.yout-ube.com/watch?v=ASb9b3pHglU",
+        "originalUrl": "https://youtu.be/ASb9b3pHglU?si=f4wHMFdlatJ1LBFE",
+        "title": "Hanuman Jayanti Bhajans By Hariom Sharan, Hariharan, Lata Mangeshkar I Shri Hanuman Chalisa Juke Box",
+        "addedAt": 1793463582128
+      },
+      {
+        "id": "yt-A_B_1nwK5Zs",
+        "videoId": "A_B_1nwK5Zs",
+        "url": "https://www.yout-ube.com/watch?v=A_B_1nwK5Zs",
+        "originalUrl": "https://youtu.be/A_B_1nwK5Zs?si=HqawM5ZzJ0b4Cbj7",
+        "title": "Hanuman Chalisa Bhajans  श्री हनुमान चालीसा ! संकटमोचन हनुमान अष्टक  गुलशन कुमार हनुमान चालीसा",
+        "addedAt": 1793463582129
+      },
+      {
+        "id": "yt-s5jvZi_bl4Q",
+        "videoId": "s5jvZi_bl4Q",
+        "url": "https://www.yout-ube.com/watch?v=s5jvZi_bl4Q",
+        "originalUrl": "https://youtu.be/s5jvZi_bl4Q?si=C5FPcsLWgR5VnWqv",
+        "title": "मंगलवार स्पेशल | हनुमान चालीसा | बजरंग बाण | हनुमान अष्टक | राम स्तुति #hanumanji#Tuesday#bajragbali",
+        "addedAt": 1793463582131
+      }
+    ],
+    "createdAt": 1793463159168
   }
 ]

@@ -213,6 +213,7 @@ export default function App() {
     const [showStartupLoader, setShowStartupLoader] = useState(true);
 
     const [navPill, setNavPill] = useState('all'); // last clicked top pill (stays highlighted)
+    const [librarySearch, setLibrarySearch] = useState('');
 
     const triedTitles = useRef(new Set());
 
@@ -511,6 +512,11 @@ export default function App() {
 
     const activeTargetId = libraries.some((lib) => lib.id === targetLibraryId) ? targetLibraryId : (libraries[0]?.id || '');
 
+    // Library tab that is currently open, and its videos filtered by the library search box.
+    const shownLib = libraries.find((lib) => lib.id === activeTargetId);
+    const libTerm = librarySearch.trim().toLowerCase();
+    const shownVideos = shownLib ? shownLib.videos.filter((video) => !libTerm || video.title.toLowerCase().includes(libTerm) || video.videoId.toLowerCase().includes(libTerm)) : [];
+
     function cleanLibraries(list) {
         return (Array.isArray(list) ? list : [])
             .filter((lib) => lib && typeof lib.name === 'string' && lib.name)
@@ -615,7 +621,7 @@ export default function App() {
         setNotice(`Library "${lib.name}" deleted.`);
     }
 
-    // Paste a YouTube link, and it is appended to the selected library (one link at a time).
+    // Paste one or many YouTube links (one per line, or separated by spaces/commas) and add them all to the selected library.
     function addLinkToLibrary(event) {
         event.preventDefault();
         if (!isAdmin) return;
@@ -624,33 +630,48 @@ export default function App() {
             setNotice('Create a library first.');
             return;
         }
-        const input = libraryLink.trim();
-        const videoId = getVideoId(input);
-        if (!videoId) {
-            setNotice('Please paste a valid YouTube video URL.');
+        const matches = libraryLink.match(/(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be|yout-ube\.com)\/[^\s<>"'`,]+/gi) || [];
+        const seen = new Set(target.videos.map((video) => video.videoId));
+        const fresh = [];
+        let duplicates = 0;
+        matches.forEach((raw) => {
+            const cleaned = raw.replace(/[),.;!?\]}]+$/, '');
+            const link = /^https?:\/\//i.test(cleaned) ? cleaned : `https://${cleaned}`;
+            const videoId = getVideoId(link);
+            if (!videoId) return;
+            if (seen.has(videoId)) {
+                duplicates += 1;
+                return;
+            }
+            seen.add(videoId);
+            fresh.push({ id: `yt-${videoId}`, videoId, url: toAppendedUrl(link), originalUrl: link, title: `${DEFAULT_TITLE_PREFIX}${videoId}`, addedAt: Date.now() + fresh.length });
+        });
+        if (!fresh.length) {
+            if (duplicates) {
+                setNotice(`All pasted videos are already in "${target.name}".`);
+                setLibraryLink('');
+            } else {
+                setNotice('Please paste valid YouTube video URLs.');
+            }
             return;
         }
-        if (target.videos.some((video) => video.videoId === videoId)) {
-            setNotice(`Already in "${target.name}".`);
-            setLibraryLink('');
-            return;
-        }
-        const video = { id: `yt-${videoId}`, videoId, url: toAppendedUrl(input), originalUrl: input, title: `${DEFAULT_TITLE_PREFIX}${videoId}`, addedAt: Date.now() };
-        commitLibraries(libraries.map((lib) => (lib.id === target.id ? { ...lib, videos: [...lib.videos, video] } : lib)));
+        commitLibraries(libraries.map((lib) => (lib.id === target.id ? { ...lib, videos: [...lib.videos, ...fresh] } : lib)));
         setLibraryLink('');
-        setNotice(`Added to "${target.name}". Paste the next link to keep adding.`);
-        // Replace the placeholder title with the real one (public oEmbed), like saved videos do.
-        fetch(`https://noembed.com/embed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}`)
-            .then((response) => response.json())
-            .then((data) => {
-                if (!data || typeof data.title !== 'string' || !data.title) return;
-                setLibraries((current) => {
-                    const next = current.map((lib) => ({ ...lib, videos: lib.videos.map((entry) => (entry.videoId === videoId ? { ...entry, title: data.title } : entry)) }));
-                    localStorage.setItem(LIBRARIES_KEY, JSON.stringify(next));
-                    return next;
-                });
-            })
-            .catch(() => { });
+        setNotice(`Added ${fresh.length} video${fresh.length === 1 ? '' : 's'} to "${target.name}".${duplicates ? ` Skipped ${duplicates} duplicate${duplicates === 1 ? '' : 's'}.` : ''}`);
+        // Replace each placeholder title with the real one (public oEmbed), like saved videos do.
+        fresh.forEach(({ videoId }) => {
+            fetch(`https://noembed.com/embed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}`)
+                .then((response) => response.json())
+                .then((data) => {
+                    if (!data || typeof data.title !== 'string' || !data.title) return;
+                    setLibraries((current) => {
+                        const next = current.map((lib) => ({ ...lib, videos: lib.videos.map((entry) => (entry.videoId === videoId ? { ...entry, title: data.title } : entry)) }));
+                        localStorage.setItem(LIBRARIES_KEY, JSON.stringify(next));
+                        return next;
+                    });
+                })
+                .catch(() => { });
+        });
     }
 
     function exportLibraries() {
@@ -1079,6 +1100,7 @@ export default function App() {
         .yt-cloud-panel { border: 1px solid #303030; border-radius: 14px; background: #161616; padding: 16px; margin: 24px 0; }
         .yt-cloud-form { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
         .yt-cloud-form input { flex: 1; min-width: 160px; border: 1px solid #3f3f3f; border-radius: 9px; padding: 10px 12px; background: #0f0f0f; color: #f1f1f1; }
+        .yt-cloud-form textarea { flex: 1; min-width: 160px; min-height: 84px; resize: vertical; border: 1px solid #3f3f3f; border-radius: 9px; padding: 10px 12px; background: #0f0f0f; color: #f1f1f1; font: inherit; }
         .yt-cloud-status { color: #aaa; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
         .yt-history-list { margin-top: 10px; border-top: 1px solid #303030; }
         .yt-history-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #303030; }
@@ -1150,6 +1172,17 @@ export default function App() {
         .yt-library-thumb { flex: 0 0 96px; width: 96px; aspect-ratio: 16 / 9; border: 0; padding: 0; border-radius: 6px; overflow: hidden; background: #272727; }
         .yt-library-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
         .yt-library-row .yt-queue-name { flex: 1; min-width: 0; }
+        .yt-library-list { height: 420px; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
+        .yt-lib-search { display: flex; align-items: center; gap: 8px; height: 38px; margin: 6px 0 12px; padding: 0 12px; border: 1px solid #3f3f3f; border-radius: 22px; background: #0f0f0f; color: #aaa; }
+        .yt-lib-search:focus-within { border-color: #1c62b9; }
+        .yt-lib-search input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: #f1f1f1; }
+        .yt-lib-clear { display: grid; place-items: center; border: 0; background: transparent; color: #aaa; padding: 4px; border-radius: 50%; }
+        .yt-lib-tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
+        .yt-lib-tab { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; white-space: nowrap; border: 0; border-radius: 8px; padding: 8px 13px; background: #272727; color: #f1f1f1; font-size: 13px; transition: background .12s ease, transform .12s ease; }
+        .yt-lib-tab:hover { background: #3f3f3f; }
+        .yt-lib-tab:active { transform: scale(.96); }
+        .yt-lib-tab.selected { background: #ff0033; color: #fff; }
+        .yt-lib-tab.selected .yt-pill-count { background: #ffffff33; color: #fff; }
 
         .yt-queue { margin: 24px 0 34px; padding: 16px; border: 1px solid #303030; border-radius: 14px; }
 
@@ -1171,7 +1204,7 @@ export default function App() {
 
         @media (max-width: 1050px) { .yt-video-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 
-        @media (max-width: 700px) { .yt-header { height: 58px; padding: 0 12px; gap: 12px; } .yt-brand { font-size: 17px; } .yt-brand-word { display: none; } .yt-search { width: auto; flex: 1; } .yt-search input { padding: 0 12px; } .yt-search button { width: 46px; } .yt-pills { top: 58px; } .yt-layout { margin-top: 58px; min-height: calc(100vh - 58px); } .yt-pill { padding: 8px 11px; font-size: 13px; gap: 5px; } .yt-main { padding: 16px 12px 60px; } .yt-video-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 10px; } .yt-add-form { flex-direction: column; } .yt-add-form .yt-red-button { width: 100%; } .yt-player { border-radius: 9px; } .yt-add-panel { padding: 14px; } .yt-section-title { font-size: 18px; } }
+        @media (max-width: 700px) { .yt-header { height: 58px; padding: 0 12px; gap: 12px; } .yt-brand { font-size: 17px; } .yt-brand-word { display: none; } .yt-search { width: auto; flex: 1; } .yt-search input { padding: 0 12px; } .yt-search button { width: 46px; } .yt-pills { top: 58px; } .yt-layout { margin-top: 58px; min-height: calc(100vh - 58px); } .yt-pill { padding: 8px 11px; font-size: 13px; gap: 5px; } .yt-main { padding: 16px 12px 60px; } .yt-library-list { height: 360px; } .yt-video-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 10px; } .yt-add-form { flex-direction: column; } .yt-add-form .yt-red-button { width: 100%; } .yt-player { border-radius: 9px; } .yt-add-panel { padding: 14px; } .yt-section-title { font-size: 18px; } }
 
       `}</style>
 
@@ -1230,7 +1263,7 @@ export default function App() {
 
             <button className={`yt-pill ${navPill === 'queue' ? 'selected' : ''}`} onClick={() => { setNavPill('queue'); document.getElementById('queue')?.scrollIntoView({ behavior: 'smooth' }); }}><Clock3 size={14}/> Queue <span className="yt-pill-count">{queue.length}</span></button>
 
-            {/* <button className={`yt-pill ${navPill === 'cloud' ? 'selected' : ''}`} onClick={() => { setNavPill('cloud'); document.getElementById('cloud-sync')?.scrollIntoView({ behavior: 'smooth' }); }}><Cloud size={14}/> Cloud sync</button> */}
+{/* <button className={`yt-pill ${navPill === 'cloud' ? 'selected' : ''}`} onClick={() => { setNavPill('cloud'); document.getElementById('cloud-sync')?.scrollIntoView({ behavior: 'smooth' }); }}><Cloud size={14}/> Cloud sync</button> */}
 
           </div>
 
@@ -1315,6 +1348,7 @@ export default function App() {
           </section>
 
 
+
 {/* 
           <section className="yt-cloud-panel" id="cloud-sync">
             <h2 className="yt-section-title"><span><Cloud size={20} style={{ verticalAlign: 'middle', marginRight: 8 }}/>Cloud sync</span><span style={{ color: '#aaa', fontSize: 12 }}>{session?.user?.email || 'Not signed in'}</span></h2>
@@ -1372,28 +1406,40 @@ export default function App() {
               <button className="yt-small-button icon" onClick={exportLibraries} title="Export libraries.json: put it in the public folder and deploy so all users see these libraries" aria-label="Export libraries"><Download size={16}/></button>
               <button className="yt-small-button icon" onClick={discardLibraryDraft} title="Discard draft: go back to the published libraries" aria-label="Discard draft"><RotateCcw size={16}/></button>
             </div>}
-            {isAdmin && libraries.length > 0 && <form className="yt-cloud-form" onSubmit={addLinkToLibrary}>
-              <input type="url" value={libraryLink} onChange={(event) => setLibraryLink(event.target.value)} placeholder={`Paste a YouTube link to add to "${libraries.find((lib) => lib.id === activeTargetId)?.name || ''}"`} required aria-label="YouTube link to add to the selected library"/>
-              <button className="yt-red-button" type="submit" title="Add this link to the selected library"><Plus size={16}/> Add to library</button>
+            {isAdmin && libraries.length > 0 && <form className="yt-cloud-form" onSubmit={addLinkToLibrary} style={{ alignItems: 'flex-end' }}>
+              <textarea value={libraryLink} onChange={(event) => setLibraryLink(event.target.value)} placeholder={`Paste one or more YouTube links (one per line) to add to "${libraries.find((lib) => lib.id === activeTargetId)?.name || ''}"`} required rows={4} aria-label="YouTube links to add to the selected library"/>
+              <button className="yt-red-button" type="submit" title="Add all pasted links to the selected library"><Plus size={16}/> Add to library</button>
             </form>}
-            {libraries.length ? libraries.map((lib) => <div className="yt-library-card" key={lib.id}>
-              <div className="yt-library-head">
-                <strong>{lib.name}<span className="yt-library-count">{lib.videos.length} {lib.videos.length === 1 ? 'video' : 'videos'}</span></strong>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="yt-small-button icon" onClick={() => addLibraryToQueue(lib)} disabled={!lib.videos.length} title="Queue all: add every video in this library to the queue" aria-label="Queue all"><ListPlus size={14}/></button>
-                  <button className="yt-small-button primary icon" onClick={() => playLibrary(lib)} disabled={!lib.videos.length} title="Play all: start this playlist; the rest go to your queue" aria-label="Play all"><Play size={14} fill="currentColor"/></button>
-                  {isAdmin && <button className="yt-small-button danger icon" onClick={() => deleteLibrary(lib.id)} title="Admin: delete this library" aria-label="Delete library"><Trash2 size={14}/></button>}
-                </div>
+            {libraries.length ? <>
+              <div className="yt-lib-search">
+                <Search size={16}/>
+                <input type="search" value={librarySearch} onChange={(event) => setLibrarySearch(event.target.value)} placeholder={`Search in "${shownLib?.name || ''}"`} aria-label="Search videos in this library"/>
+                {librarySearch && <button className="yt-lib-clear" onClick={() => setLibrarySearch('')} aria-label="Clear library search" title="Clear search"><X size={14}/></button>}
               </div>
-              {lib.videos.length ? lib.videos.map((video) => <div className="yt-library-row" key={video.videoId}>
-                <button className="yt-library-thumb" onClick={() => playVideo(video.videoId)} title="Play this video" aria-label={`Play ${video.title}`}><img src={`https://i.ytimg.com/vi/${video.videoId}/mqdefault.jpg`} alt="" loading="lazy"/></button>
-                <span className="yt-queue-name">{video.title}</span>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="yt-small-button primary icon" onClick={() => playVideo(video.videoId)} title="Play this video" aria-label="Play"><Play size={14}/></button>
-                  {isAdmin && <button className="yt-small-button icon" onClick={() => removeFromLibrary(lib.id, video.videoId)} title="Admin: remove from this library" aria-label="Remove from library"><X size={14}/></button>}
+              <div className="yt-lib-tabs" role="tablist" aria-label="Libraries">
+                {libraries.map((lib) => <button key={lib.id} role="tab" aria-selected={lib.id === activeTargetId} className={`yt-lib-tab ${lib.id === activeTargetId ? 'selected' : ''}`} onClick={() => { setTargetLibraryId(lib.id); setLibrarySearch(''); }}>{lib.name} <span className="yt-pill-count">{lib.videos.length}</span></button>)}
+              </div>
+              {shownLib && <div className="yt-library-card">
+                <div className="yt-library-head">
+                  <strong>{shownLib.name}<span className="yt-library-count">{libTerm ? `${shownVideos.length} of ${shownLib.videos.length}` : shownLib.videos.length} {shownLib.videos.length === 1 ? 'video' : 'videos'}</span></strong>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="yt-small-button icon" onClick={() => addLibraryToQueue({ ...shownLib, videos: shownVideos })} disabled={!shownVideos.length} title="Queue all: add the listed videos of this library to the queue" aria-label="Queue all"><ListPlus size={14}/></button>
+                    <button className="yt-small-button primary icon" onClick={() => playLibrary({ ...shownLib, videos: shownVideos })} disabled={!shownVideos.length} title="Play all: start this playlist; the rest go to your queue" aria-label="Play all"><Play size={14} fill="currentColor"/></button>
+                    {isAdmin && <button className="yt-small-button danger icon" onClick={() => deleteLibrary(shownLib.id)} title="Admin: delete this library" aria-label="Delete library"><Trash2 size={14}/></button>}
+                  </div>
                 </div>
-              </div>) : <p className="yt-cloud-status">{isAdmin ? 'No videos yet. Paste a YouTube link above to add the first one.' : 'No videos in this library yet.'}</p>}
-            </div>) : <p className="yt-cloud-status">{isAdmin ? 'No libraries yet. Create one above.' : 'No libraries have been published yet.'}</p>}
+                <div className="yt-library-list">
+                  {shownVideos.length ? shownVideos.map((video) => <div className="yt-library-row" key={video.videoId}>
+                    <button className="yt-library-thumb" onClick={() => playVideo(video.videoId)} title="Play this video" aria-label={`Play ${video.title}`}><img src={`https://i.ytimg.com/vi/${video.videoId}/mqdefault.jpg`} alt="" loading="lazy"/></button>
+                    <span className="yt-queue-name">{video.title}</span>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button className="yt-small-button primary icon" onClick={() => playVideo(video.videoId)} title="Play this video" aria-label="Play"><Play size={14}/></button>
+                      {isAdmin && <button className="yt-small-button icon" onClick={() => removeFromLibrary(shownLib.id, video.videoId)} title="Admin: remove from this library" aria-label="Remove from library"><X size={14}/></button>}
+                    </div>
+                  </div>) : <p className="yt-cloud-status">{libTerm ? 'No videos match your search.' : (isAdmin ? 'No videos yet. Paste YouTube links above to add them.' : 'No videos in this library yet.')}</p>}
+                </div>
+              </div>}
+            </> : <p className="yt-cloud-status">{isAdmin ? 'No libraries yet. Create one above.' : 'No libraries have been published yet.'}</p>}
             {isAdmin && <p className="yt-cloud-status">Draft mode: changes are saved only in this browser. Use the export icon, replace public/libraries.json, and deploy to publish them to everyone.</p>}
           </section>
 
