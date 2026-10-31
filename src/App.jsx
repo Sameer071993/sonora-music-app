@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 // import { createClient } from '@supabase/supabase-js';
 
-import { Youtube, Search, Plus, Play, ExternalLink, Trash2, ListVideo, X, Link2, ArrowUpRight, Clock3, Menu, SkipForward, RefreshCw, Copy, Download, Upload, ShieldCheck, Heart, History, Minimize2, Maximize2, Shuffle, Cloud, LogIn, LogOut, ChevronUp, ChevronDown } from 'lucide-react';
+import { Youtube, Search, Plus, Play, ExternalLink, Trash2, ListVideo, X, Link2, ArrowUpRight, Clock3, Menu, SkipForward, RefreshCw, Copy, Download, Upload, ShieldCheck, Heart, History, Minimize2, Maximize2, Shuffle, Cloud, LogIn, LogOut, ChevronUp, ChevronDown, Library, FolderPlus, ListPlus, PictureInPicture2, Fullscreen, Lock, Unlock, RotateCcw } from 'lucide-react';
 
 const STORAGE_KEY = 'sonora-youtube-links';
 
@@ -14,6 +14,20 @@ const MODE_KEY = 'sonora-player-mode';
 const DEFAULT_TITLE_PREFIX = 'YouTube video · ';
 const FAVORITES_KEY = 'sonora-favorites';
 const HISTORY_KEY = 'sonora-watch-history';
+const LIBRARIES_KEY = 'sonora-libraries-draft'; // admin's unpublished working copy (this browser only)
+const ADMIN_FLAG_KEY = 'sonora-admin-session';
+const DEFAULT_LIBRARY_NAME = 'Mostly Viewed';
+/*
+  Libraries are front-end only. Everyone sees the libraries shipped in public/libraries.json.
+  Admin mode (unlocked with VITE_ADMIN_PASSWORD from your .env) lets you create/edit libraries as a local draft;
+  use the Export icon, replace public/libraries.json with the downloaded file, and deploy.
+  The password is only a convenience gate: it can be read from the built JS, but that is harmless because nothing
+  the admin changes reaches other users until you deploy the exported file yourself.
+*/
+const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || '';
+const LIBRARIES_URL = `${import.meta.env.BASE_URL}libraries.json`;
+const SLOW_LOAD_HINT_MS = 10000; // show "click Reload player" hint after 10 seconds
+const AUTO_RELOAD_MS = 60000; // auto-trigger Reload player after 1 minute
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 const supabase = SUPABASE_URL && SUPABASE_ANON_KEY ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
@@ -175,6 +189,7 @@ export default function App() {
 
     const [reloadKey, setReloadKey] = useState(0);
     const [playerLoading, setPlayerLoading] = useState(false);
+    const [slowLoad, setSlowLoad] = useState(false);
     const [miniPlayer, setMiniPlayer] = useState(false);
     const [favorites, setFavorites] = useState(() => readStoredArray(FAVORITES_KEY));
     const [history, setHistory] = useState(() => readStoredArray(HISTORY_KEY));
@@ -186,6 +201,13 @@ export default function App() {
     const [cloudBusy, setCloudBusy] = useState(false);
     const [cloudStatus, setCloudStatus] = useState('');
     const [authMode, setAuthMode] = useState('login');
+    const [libraries, setLibraries] = useState([]);
+    const [newLibraryName, setNewLibraryName] = useState('');
+    const [targetLibraryId, setTargetLibraryId] = useState('');
+    const [isAdmin, setIsAdmin] = useState(() => sessionStorage.getItem(ADMIN_FLAG_KEY) === '1');
+    const [showAdminLogin, setShowAdminLogin] = useState(false);
+    const [adminPassword, setAdminPassword] = useState('');
+    const [libraryLink, setLibraryLink] = useState('');
 
     const [notice, setNotice] = useState('');
     const [showStartupLoader, setShowStartupLoader] = useState(true);
@@ -288,6 +310,10 @@ export default function App() {
     }, [history]);
 
     useEffect(() => {
+        loadLibraries();
+    }, [isAdmin]);
+
+    useEffect(() => {
         if (!supabase) return undefined;
         supabase.auth.getSession().then(({ data }) => setSession(data.session));
         const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
@@ -298,6 +324,23 @@ export default function App() {
     useEffect(() => {
         setPlayerLoading(Boolean(activeId));
     }, [activeId, mode, reloadKey]);
+
+    // Slow-load helper: after 10s show a "click Reload player" hint, and after
+    // 1 minute trigger the same action as the Reload player button automatically.
+    // The timers restart on every (re)load and are cancelled once the player loads.
+    useEffect(() => {
+        setSlowLoad(false);
+        if (!playerLoading || !activeId) return undefined;
+        const hintTimer = window.setTimeout(() => setSlowLoad(true), SLOW_LOAD_HINT_MS);
+        const reloadTimer = window.setTimeout(() => {
+            setNotice('The video took more than a minute to load, so the player was reloaded automatically.');
+            setReloadKey((key) => key + 1);
+        }, AUTO_RELOAD_MS);
+        return () => {
+            window.clearTimeout(hintTimer);
+            window.clearTimeout(reloadTimer);
+        };
+    }, [playerLoading, activeId, mode, reloadKey]);
 
     // Fetch real video titles (public oEmbed) for items that still have the placeholder title.
 
@@ -339,7 +382,7 @@ export default function App() {
 
     }, [items]);
 
-    const activeItem = useMemo(() => items.find((item) => item.videoId === activeId) || queue.find((item) => item.videoId === activeId), [items, queue, activeId]);
+    const activeItem = useMemo(() => items.find((item) => item.videoId === activeId) || queue.find((item) => item.videoId === activeId) || libraries.flatMap((lib) => lib.videos || []).find((item) => item.videoId === activeId), [items, queue, libraries, activeId]);
 
     const filteredItems = useMemo(() => {
 
@@ -354,7 +397,7 @@ export default function App() {
         setActiveId(videoId);
         setPlayerLoading(true);
         setMiniPlayer(false);
-        const item = items.find((entry) => entry.videoId === videoId) || queue.find((entry) => entry.videoId === videoId);
+        const item = items.find((entry) => entry.videoId === videoId) || queue.find((entry) => entry.videoId === videoId) || libraries.flatMap((lib) => lib.videos || []).find((entry) => entry.videoId === videoId);
         if (item) setHistory((current) => [{ ...item, playedAt: Date.now() }, ...current.filter((entry) => entry.videoId !== videoId)].slice(0, 100));
         window.setTimeout(() => document.querySelector('.yt-player-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
     }
@@ -453,6 +496,179 @@ export default function App() {
         } finally {
             setCloudBusy(false);
         }
+    }
+
+    const activeTargetId = libraries.some((lib) => lib.id === targetLibraryId) ? targetLibraryId : (libraries[0]?.id || '');
+
+    function cleanLibraries(list) {
+        return (Array.isArray(list) ? list : [])
+            .filter((lib) => lib && typeof lib.name === 'string' && lib.name)
+            .map((lib, index) => ({
+                id: lib.id || `lib-${index}-${lib.name}`,
+                name: lib.name,
+                videos: Array.isArray(lib.videos) ? lib.videos.filter((video) => video && typeof video.videoId === 'string') : [],
+                createdAt: lib.createdAt || Date.now(),
+            }));
+    }
+
+    // Everyone sees the libraries shipped with the app (public/libraries.json). Admin changes stay a local draft
+    // (this browser only) until you export libraries.json and deploy it with the code.
+    async function loadLibraries() {
+        let published = [];
+        try {
+            const response = await fetch(LIBRARIES_URL, { cache: 'no-store' });
+            published = response.ok ? cleanLibraries(await response.json()) : [];
+        } catch {
+            published = [];
+        }
+        let next = published;
+        if (isAdmin) {
+            const draft = cleanLibraries(readStoredArray(LIBRARIES_KEY));
+            if (draft.length) next = draft;
+            else if (!published.length) next = [{ id: 'mostly-viewed', name: DEFAULT_LIBRARY_NAME, videos: [], createdAt: Date.now() }];
+        }
+        setLibraries(next);
+    }
+
+    function commitLibraries(next) {
+        setLibraries(next);
+        if (isAdmin) localStorage.setItem(LIBRARIES_KEY, JSON.stringify(next));
+    }
+
+    function unlockAdmin(event) {
+        event.preventDefault();
+        if (!ADMIN_PASSWORD) {
+            setNotice('Admin password is not set. Add VITE_ADMIN_PASSWORD to your .env file and restart Vite.');
+            return;
+        }
+        if (adminPassword !== ADMIN_PASSWORD) {
+            setNotice('Incorrect admin password.');
+            return;
+        }
+        sessionStorage.setItem(ADMIN_FLAG_KEY, '1');
+        setIsAdmin(true);
+        setAdminPassword('');
+        setShowAdminLogin(false);
+        setNotice('Admin mode on. Your changes are a draft until you export libraries.json and deploy it.');
+    }
+
+    function lockAdmin() {
+        sessionStorage.removeItem(ADMIN_FLAG_KEY);
+        setIsAdmin(false);
+        setShowAdminLogin(false);
+        setNotice('Admin mode off.');
+    }
+
+    function createLibrary(event) {
+        event.preventDefault();
+        const name = newLibraryName.trim();
+        if (!name || !isAdmin) return;
+        if (libraries.some((lib) => lib.name.toLowerCase() === name.toLowerCase())) {
+            setNotice('A library with this name already exists.');
+            return;
+        }
+        const created = { id: `lib-${Date.now()}`, name, videos: [], createdAt: Date.now() };
+        commitLibraries([...libraries, created]);
+        setTargetLibraryId(created.id);
+        setNewLibraryName('');
+        setNotice(`Library "${name}" created.`);
+    }
+
+    function addToLibrary(item) {
+        if (!isAdmin) return;
+        const target = libraries.find((lib) => lib.id === activeTargetId);
+        if (!target) {
+            setNotice('Create a library first.');
+            return;
+        }
+        if (target.videos.some((video) => video.videoId === item.videoId)) {
+            setNotice(`Already in "${target.name}".`);
+            return;
+        }
+        const video = { id: item.id, videoId: item.videoId, url: item.url, originalUrl: item.originalUrl, title: item.title, addedAt: item.addedAt };
+        commitLibraries(libraries.map((lib) => (lib.id === target.id ? { ...lib, videos: [...lib.videos, video] } : lib)));
+        setNotice(`Added to "${target.name}".`);
+    }
+
+    function removeFromLibrary(libraryId, videoId) {
+        if (!isAdmin) return;
+        commitLibraries(libraries.map((lib) => (lib.id === libraryId ? { ...lib, videos: lib.videos.filter((video) => video.videoId !== videoId) } : lib)));
+        setNotice('Removed from library.');
+    }
+
+    function deleteLibrary(libraryId) {
+        const lib = libraries.find((entry) => entry.id === libraryId);
+        if (!lib || !isAdmin) return;
+        if (!window.confirm(`Delete the library "${lib.name}"?`)) return;
+        commitLibraries(libraries.filter((entry) => entry.id !== libraryId));
+        setNotice(`Library "${lib.name}" deleted.`);
+    }
+
+    // Paste a YouTube link, and it is appended to the selected library (one link at a time).
+    function addLinkToLibrary(event) {
+        event.preventDefault();
+        if (!isAdmin) return;
+        const target = libraries.find((lib) => lib.id === activeTargetId);
+        if (!target) {
+            setNotice('Create a library first.');
+            return;
+        }
+        const input = libraryLink.trim();
+        const videoId = getVideoId(input);
+        if (!videoId) {
+            setNotice('Please paste a valid YouTube video URL.');
+            return;
+        }
+        if (target.videos.some((video) => video.videoId === videoId)) {
+            setNotice(`Already in "${target.name}".`);
+            setLibraryLink('');
+            return;
+        }
+        const video = { id: `yt-${videoId}`, videoId, url: toAppendedUrl(input), originalUrl: input, title: `${DEFAULT_TITLE_PREFIX}${videoId}`, addedAt: Date.now() };
+        commitLibraries(libraries.map((lib) => (lib.id === target.id ? { ...lib, videos: [...lib.videos, video] } : lib)));
+        setLibraryLink('');
+        setNotice(`Added to "${target.name}". Paste the next link to keep adding.`);
+        // Replace the placeholder title with the real one (public oEmbed), like saved videos do.
+        fetch(`https://noembed.com/embed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}`)
+            .then((response) => response.json())
+            .then((data) => {
+                if (!data || typeof data.title !== 'string' || !data.title) return;
+                setLibraries((current) => {
+                    const next = current.map((lib) => ({ ...lib, videos: lib.videos.map((entry) => (entry.videoId === videoId ? { ...entry, title: data.title } : entry)) }));
+                    localStorage.setItem(LIBRARIES_KEY, JSON.stringify(next));
+                    return next;
+                });
+            })
+            .catch(() => { });
+    }
+
+    function exportLibraries() {
+        const blob = new Blob([JSON.stringify(libraries, null, 2)], { type: 'application/json' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'libraries.json';
+        link.click();
+        URL.revokeObjectURL(link.href);
+        setNotice('libraries.json downloaded. Replace public/libraries.json with it and deploy so every user sees these libraries.');
+    }
+
+    function discardLibraryDraft() {
+        if (!window.confirm('Discard your draft and reload the published libraries?')) return;
+        localStorage.removeItem(LIBRARIES_KEY);
+        loadLibraries();
+        setNotice('Draft discarded.');
+    }
+
+    // Plays the first video now and puts the rest in the queue, so "Next in queue" continues the playlist.
+    function playLibrary(lib) {
+        if (!lib.videos.length) {
+            setNotice('This library has no videos yet.');
+            return;
+        }
+        const [first, ...rest] = lib.videos;
+        setQueue(rest);
+        playVideo(first.videoId);
+        setNotice(`Playing "${lib.name}". The remaining videos are in your queue.`);
     }
 
     function addLink(event) {
@@ -782,6 +998,7 @@ export default function App() {
         .yt-loader-spinner { width: 42px; height: 42px; border: 4px solid #454545; border-top-color: #ff0033; border-radius: 50%; animation: sonora-spin .8s linear infinite; }
         .yt-loading-title { font-size: 16px; font-weight: 700; }
         .yt-loading-subtitle { color: #aaa; font-size: 13px; }
+        .yt-loading-hint { max-width: 420px; color: #ffd24d; font-size: 13px; line-height: 1.5; }
         @keyframes sonora-spin { to { transform: rotate(360deg); } }
 
         .yt-player iframe { display: block; width: 100%; height: 100%; border: 0; }
@@ -805,7 +1022,7 @@ export default function App() {
 
         .yt-list-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 
-        .yt-video-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px 16px; }
+        .yt-video-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 18px 12px; }
 
         .yt-video-card { min-width: 0; }
 
@@ -857,6 +1074,33 @@ export default function App() {
 
         .yt-small-button.danger { color: #ff8080; }
 
+        /* Compact saved-video cards: smaller thumbnails; the main player stays large. */
+        .yt-video-grid .yt-thumb-wrap { border-radius: 8px; }
+        .yt-video-grid .yt-mini-icon { display: none; }
+        .yt-video-grid .yt-card-body { padding-top: 8px; }
+        .yt-video-grid .yt-card-title { font-size: 13px; line-height: 1.3; margin: 0 0 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .yt-video-grid .yt-card-meta { font-size: 11px; margin: 0 0 6px; }
+        .yt-video-grid .yt-actions { gap: 5px; }
+        .yt-video-grid .yt-small-button { padding: 5px 8px; font-size: 11px; gap: 4px; }
+        .yt-video-grid .yt-playing-badge { padding: 5px 8px; font-size: 10px; gap: 5px; }
+
+        /* Icon-only buttons (hover shows the title tooltip) */
+        .yt-small-button.icon { width: 34px; height: 34px; padding: 0; }
+        .yt-video-grid .yt-small-button.icon { width: 30px; height: 30px; padding: 0; }
+        .yt-small-button:disabled { opacity: .45; cursor: not-allowed; }
+
+        /* Library */
+        .yt-library-panel { border: 1px solid #303030; border-radius: 14px; background: #161616; padding: 16px; margin: 24px 0 34px; }
+        .yt-library-target { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: #aaa; font-size: 13px; margin: 4px 0 12px; }
+        .yt-library-target select { border: 1px solid #3f3f3f; border-radius: 9px; padding: 8px 10px; background: #0f0f0f; color: #f1f1f1; }
+        .yt-library-card { border-top: 1px solid #303030; padding: 12px 0; }
+        .yt-library-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+        .yt-library-count { color: #aaa; font-size: 12px; font-weight: 400; margin-left: 8px; }
+        .yt-library-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; }
+        .yt-library-thumb { flex: 0 0 96px; width: 96px; aspect-ratio: 16 / 9; border: 0; padding: 0; border-radius: 6px; overflow: hidden; background: #272727; }
+        .yt-library-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .yt-library-row .yt-queue-name { flex: 1; min-width: 0; }
+
         .yt-queue { margin: 24px 0 34px; padding: 16px; border: 1px solid #303030; border-radius: 14px; }
 
         .yt-queue-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid #303030; padding: 11px 0; }
@@ -875,9 +1119,9 @@ export default function App() {
 
         .yt-menu-button { display: none; background: transparent; border: 0; color: #f1f1f1; }
 
-        @media (max-width: 1050px) { .yt-video-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .yt-layout { grid-template-columns: 190px minmax(0, 1fr); } }
+        @media (max-width: 1050px) { .yt-video-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .yt-layout { grid-template-columns: 190px minmax(0, 1fr); } }
 
-        @media (max-width: 700px) { .yt-header { height: 58px; padding: 0 12px; gap: 12px; } .yt-brand { font-size: 17px; } .yt-brand-word { display: none; } .yt-search { width: auto; flex: 1; } .yt-search input { padding: 0 12px; } .yt-search button { width: 46px; } .yt-layout { display: block; min-height: calc(100vh - 58px); } .yt-sidebar { display: ${menuOpen ? 'block' : 'none'}; position: fixed; z-index: 6; top: 58px; left: 0; bottom: 0; width: 230px; background: #0f0f0f; box-shadow: 12px 0 24px #0007; } .yt-menu-button { display: flex; } .yt-main { padding: 16px 12px 60px; } .yt-video-grid { grid-template-columns: 1fr; gap: 28px; } .yt-thumb-wrap { border-radius: 10px; } .yt-add-form { flex-direction: column; } .yt-add-form .yt-red-button { width: 100%; } .yt-player { border-radius: 9px; } .yt-add-panel { padding: 14px; } .yt-section-title { font-size: 18px; } }
+        @media (max-width: 700px) { .yt-header { height: 58px; padding: 0 12px; gap: 12px; } .yt-brand { font-size: 17px; } .yt-brand-word { display: none; } .yt-search { width: auto; flex: 1; } .yt-search input { padding: 0 12px; } .yt-search button { width: 46px; } .yt-layout { display: block; min-height: calc(100vh - 58px); } .yt-sidebar { display: ${menuOpen ? 'block' : 'none'}; position: fixed; z-index: 6; top: 58px; left: 0; bottom: 0; width: 230px; background: #0f0f0f; box-shadow: 12px 0 24px #0007; } .yt-menu-button { display: flex; } .yt-main { padding: 16px 12px 60px; } .yt-video-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 10px; } .yt-add-form { flex-direction: column; } .yt-add-form .yt-red-button { width: 100%; } .yt-player { border-radius: 9px; } .yt-add-panel { padding: 14px; } .yt-section-title { font-size: 18px; } }
 
       `}</style>
 
@@ -923,6 +1167,7 @@ export default function App() {
           <button className="yt-side-button" onClick={() => document.getElementById('saved-videos')?.scrollIntoView({ behavior: 'smooth' })}><ListVideo size={20}/> Saved videos <span>{items.length}</span></button>
 
           <button className="yt-side-button" onClick={() => document.getElementById('queue')?.scrollIntoView({ behavior: 'smooth' })}><Clock3 size={20}/> Queue <span>{queue.length}</span></button>
+          <button className="yt-side-button" onClick={() => document.getElementById('libraries')?.scrollIntoView({ behavior: 'smooth' })}><Library size={20}/> Library <span>{libraries.length}</span></button>
           <button className="yt-side-button" onClick={() => document.getElementById('cloud-sync')?.scrollIntoView({ behavior: 'smooth' })}><Cloud size={20}/> Cloud sync</button>
 
           <p className="yt-side-note">Your library is stored locally. Optional cloud sync requires your own Supabase setup. Playback behavior depends on the external player.</p>
@@ -943,6 +1188,7 @@ export default function App() {
 
             <button className="yt-pill" onClick={() => { setShowFavoritesOnly((value) => !value); setShowHistory(false); }}>{showFavoritesOnly ? 'All videos' : 'Favorites'}</button>
             <button className="yt-pill" onClick={() => setShowHistory((value) => !value)}>Watch history</button>
+            <button className="yt-pill" onClick={() => document.getElementById('libraries')?.scrollIntoView({ behavior: 'smooth' })}>Library</button>
             <button className="yt-pill" onClick={() => document.getElementById('queue')?.scrollIntoView({ behavior: 'smooth' })}>Queue</button>
 
           </div>
@@ -957,7 +1203,7 @@ export default function App() {
 
               <input type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="Paste a YouTube video URL here…" aria-label="YouTube video URL" required/>
 
-              <button className="yt-red-button" type="submit"><Plus size={18}/> Save link</button>
+              <button className="yt-red-button" type="submit" title="Save this link to your saved videos and start playing it"><Plus size={18}/> Save link</button>
 
             </form>
 
@@ -990,6 +1236,7 @@ export default function App() {
                         <span className="yt-loader-spinner" aria-hidden="true" />
                         <span className="yt-loading-title">This video is loading on SONORA APP</span>
                         <span className="yt-loading-subtitle">Please wait while the player loads…</span>
+                        {slowLoad && <span className="yt-loading-hint">Taking longer than usual. Please click on "Reload player". If it still hasn't loaded in 1 minute, the player will reload automatically.</span>}
                       </div>
                     )}
 
@@ -1003,20 +1250,20 @@ export default function App() {
 
               <div className="yt-seg" role="group" aria-label="Player mode">
 
-                <button className={mode === 'adfree' ? 'on' : ''} onClick={() => setMode('adfree')}><ShieldCheck size={13} style={{ verticalAlign: 'middle' }}/> Ad-free site</button>
+                <button className={mode === 'adfree' ? 'on' : ''} onClick={() => setMode('adfree')} title="Ad-free site: plays the video through the ad-free player"><ShieldCheck size={13} style={{ verticalAlign: 'middle' }}/> Ad-free site</button>
 
                 {/* <button className={mode === 'official' ? 'on' : ''} onClick={() => setMode('official')}>YouTube embed</button> */}
 
               </div>
 
-              <button className="yt-small-button" onClick={playNextQueued}><SkipForward size={14}/> Next in queue</button>
+              <button className="yt-small-button icon" onClick={playNextQueued} title="Next in queue: play the next video from your queue" aria-label="Next in queue"><SkipForward size={16}/></button>
 
-              {activeId && <button className="yt-small-button" onClick={() => setReloadKey((key) => key + 1)}><RefreshCw size={14}/> Reload player</button>}
+              {activeId && <button className="yt-small-button icon" onClick={() => setReloadKey((key) => key + 1)} title="Reload player: use this if the video is stuck loading or blank" aria-label="Reload player"><RefreshCw size={16}/></button>}
 
-              {activeId && <button className="yt-small-button" onClick={async () => { const player = document.querySelector('.yt-player'); if (!player) return; try { if (document.fullscreenElement) { await document.exitFullscreen(); } else if (player.requestFullscreen) { await player.requestFullscreen(); } } catch (error) { console.error('Fullscreen could not be opened:', error); } }}><Maximize2 size={14}/> Full screen</button>}
+              {activeId && <button className="yt-small-button icon" title="Full screen: fill the whole screen with the player" aria-label="Full screen" onClick={async () => { const player = document.querySelector('.yt-player'); if (!player) return; try { if (document.fullscreenElement) { await document.exitFullscreen(); } else if (player.requestFullscreen) { await player.requestFullscreen(); } } catch (error) { console.error('Fullscreen could not be opened:', error); } }}><Fullscreen size={16}/></button>}
 
-              {activeItem && <button className="yt-small-button" onClick={() => setMiniPlayer((value) => !value)}>{miniPlayer ? <Maximize2 size={14}/> : <Minimize2 size={14}/>} {miniPlayer ? 'Expand player' : 'Mini player'}</button>}
-              {activeItem && <button className="yt-small-button" onClick={copyActiveLink}><Copy size={14}/> Copy link</button>}
+              {activeItem && <button className="yt-small-button icon" onClick={() => setMiniPlayer((value) => !value)} title={miniPlayer ? 'Expand player: return to the full-size player' : 'Mini player: keep the video floating in the corner while you browse'} aria-label={miniPlayer ? 'Expand player' : 'Mini player'}>{miniPlayer ? <Maximize2 size={16}/> : <PictureInPicture2 size={16}/>}</button>}
+              {/* {activeItem && <button className="yt-small-button" onClick={copyActiveLink}><Copy size={14}/> Copy link</button>} */}
 
             </div>
 
@@ -1035,7 +1282,7 @@ export default function App() {
             ) : session ? (
               <>
                 <p className="yt-cloud-status">Sync saved videos, favorites, watch history and queue across devices using the same account.</p>
-                <div className="yt-cloud-form"><button className="yt-red-button" onClick={syncCloud} disabled={cloudBusy}><Cloud size={15}/>{cloudBusy ? 'Syncing…' : 'Sync now'}</button><button className="yt-small-button" onClick={signOutCloud}><LogOut size={14}/> Sign out</button></div>
+                <div className="yt-cloud-form"><button className="yt-red-button" onClick={syncCloud} disabled={cloudBusy} title="Sync now: merge this device's library with your cloud account"><Cloud size={15}/>{cloudBusy ? 'Syncing…' : 'Sync now'}</button><button className="yt-small-button icon" onClick={signOutCloud} title="Sign out of cloud sync" aria-label="Sign out"><LogOut size={14}/></button></div>
               </>
             ) : (
               <form className="yt-cloud-form" onSubmit={handleAuth}>
@@ -1049,19 +1296,64 @@ export default function App() {
           </section>
 
           {showHistory && <section className="yt-queue">
-            <h2 className="yt-section-title"><span><History size={20} style={{ verticalAlign: 'middle', marginRight: 8 }}/>Recently played</span><button className="yt-small-button danger" onClick={() => { setHistory([]); setNotice('Watch history cleared.'); }}>Clear history</button></h2>
-            {history.length ? <div className="yt-history-list">{history.slice(0, 20).map((item) => <div className="yt-history-row" key={item.videoId}><span className="yt-queue-name">{item.title}</span><button className="yt-small-button primary" onClick={() => playVideo(item.videoId)}><Play size={14}/> Play</button></div>)}</div> : <p className="yt-cloud-status">Videos you play will appear here.</p>}
+            <h2 className="yt-section-title"><span><History size={20} style={{ verticalAlign: 'middle', marginRight: 8 }}/>Recently played</span><button className="yt-small-button danger icon" onClick={() => { setHistory([]); setNotice('Watch history cleared.'); }} title="Clear history: remove all recently played videos" aria-label="Clear history"><Trash2 size={14}/></button></h2>
+            {history.length ? <div className="yt-history-list">{history.slice(0, 20).map((item) => <div className="yt-history-row" key={item.videoId}><span className="yt-queue-name">{item.title}</span><button className="yt-small-button primary icon" onClick={() => playVideo(item.videoId)} title="Play this video again" aria-label="Play"><Play size={14}/></button></div>)}</div> : <p className="yt-cloud-status">Videos you play will appear here.</p>}
           </section>}
 
           {queue.length > 0 && <section className="yt-queue" id="queue">
 
-            <h2 className="yt-section-title"><span>Up next <span style={{ color: '#aaa', fontSize: 14 }}>{queue.length} videos</span></span><span style={{ display: 'flex', gap: 8 }}><button className="yt-small-button" onClick={shuffleQueue}><Shuffle size={14}/> Shuffle</button><button className="yt-small-button danger" onClick={() => setQueue([])}><Trash2 size={14}/> Clear queue</button></span></h2>
+            <h2 className="yt-section-title"><span>Up next <span style={{ color: '#aaa', fontSize: 14 }}>{queue.length} videos</span></span><span style={{ display: 'flex', gap: 8 }}><button className="yt-small-button icon" onClick={shuffleQueue} title="Shuffle: play the queue in random order" aria-label="Shuffle"><Shuffle size={14}/></button><button className="yt-small-button danger icon" onClick={() => setQueue([])} title="Clear queue: remove all videos from the queue" aria-label="Clear queue"><Trash2 size={14}/></button></span></h2>
 
-            {queue.map((item, index) => <div className="yt-queue-row" key={`${item.videoId}-${index}`}><span className="yt-queue-name">{index + 1}. {item.title}</span><div style={{ display: 'flex', gap: 6 }}><button className="yt-small-button" disabled={index === 0} onClick={() => moveQueueItem(index, -1)} aria-label="Move up"><ChevronUp size={14}/></button><button className="yt-small-button" disabled={index === queue.length - 1} onClick={() => moveQueueItem(index, 1)} aria-label="Move down"><ChevronDown size={14}/></button><button className="yt-small-button primary" onClick={() => { playVideo(item.videoId); setQueue((current) => current.filter((entry, i) => !(entry.videoId === item.videoId && i === index))); }}><Play size={14}/> Play</button><button className="yt-small-button" aria-label="Remove from queue" onClick={() => setQueue((current) => current.filter((_, i) => i !== index))}><X size={15}/></button></div></div>)}
+            {queue.map((item, index) => <div className="yt-queue-row" key={`${item.videoId}-${index}`}><span className="yt-queue-name">{index + 1}. {item.title}</span><div style={{ display: 'flex', gap: 6 }}><button className="yt-small-button" disabled={index === 0} onClick={() => moveQueueItem(index, -1)} aria-label="Move up" title="Move up in the queue"><ChevronUp size={14}/></button><button className="yt-small-button" disabled={index === queue.length - 1} onClick={() => moveQueueItem(index, 1)} aria-label="Move down" title="Move down in the queue"><ChevronDown size={14}/></button><button className="yt-small-button primary" onClick={() => { playVideo(item.videoId); setQueue((current) => current.filter((entry, i) => !(entry.videoId === item.videoId && i === index))); }} title="Play this video now" aria-label="Play now"><Play size={14}/></button><button className="yt-small-button" title="Remove from queue" aria-label="Remove from queue" onClick={() => setQueue((current) => current.filter((_, i) => i !== index))}><X size={15}/></button></div></div>)}
 
           </section>}
 
 
+
+          <section className="yt-library-panel" id="libraries">
+            <h2 className="yt-section-title"><span><Library size={20} style={{ verticalAlign: 'middle', marginRight: 8 }}/>Library</span><span style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#aaa', fontSize: 12 }}>{libraries.length} {libraries.length === 1 ? 'playlist' : 'playlists'}
+              {isAdmin
+                ? <button className="yt-small-button icon" onClick={lockAdmin} title="Admin mode is on: click to lock it" aria-label="Lock admin mode"><Unlock size={14}/></button>
+                : <button className="yt-small-button icon" onClick={() => setShowAdminLogin((value) => !value)} title="Admin login: create and edit libraries" aria-label="Admin login"><Lock size={14}/></button>}
+            </span></h2>
+            {!isAdmin && showAdminLogin && <form className="yt-cloud-form" onSubmit={unlockAdmin}>
+              <input type="password" value={adminPassword} onChange={(event) => setAdminPassword(event.target.value)} placeholder="Admin password" required aria-label="Admin password"/>
+              <button className="yt-red-button" type="submit" title="Unlock the admin controls"><LogIn size={14}/> Unlock</button>
+            </form>}
+            {isAdmin && <form className="yt-cloud-form" onSubmit={createLibrary}>
+              <input type="text" value={newLibraryName} onChange={(event) => setNewLibraryName(event.target.value)} placeholder="New library name (e.g. Mostly Viewed)" maxLength={60} required aria-label="New library name"/>
+              <button className="yt-red-button" type="submit" title="Create a new library"><Plus size={16}/> Create library</button>
+            </form>}
+            {isAdmin && <div className="yt-library-target">
+              {libraries.length > 0 && <><span>Add videos to:</span>
+                <select value={activeTargetId} onChange={(event) => setTargetLibraryId(event.target.value)} aria-label="Target library">{libraries.map((lib) => <option key={lib.id} value={lib.id}>{lib.name}</option>)}</select>
+                <span>(use the folder icon on a saved video below)</span></>}
+              <button className="yt-small-button icon" onClick={exportLibraries} title="Export libraries.json: put it in the public folder and deploy so all users see these libraries" aria-label="Export libraries"><Download size={16}/></button>
+              <button className="yt-small-button icon" onClick={discardLibraryDraft} title="Discard draft: go back to the published libraries" aria-label="Discard draft"><RotateCcw size={16}/></button>
+            </div>}
+            {isAdmin && libraries.length > 0 && <form className="yt-cloud-form" onSubmit={addLinkToLibrary}>
+              <input type="url" value={libraryLink} onChange={(event) => setLibraryLink(event.target.value)} placeholder={`Paste a YouTube link to add to "${libraries.find((lib) => lib.id === activeTargetId)?.name || ''}"`} required aria-label="YouTube link to add to the selected library"/>
+              <button className="yt-red-button" type="submit" title="Add this link to the selected library"><Plus size={16}/> Add to library</button>
+            </form>}
+            {libraries.length ? libraries.map((lib) => <div className="yt-library-card" key={lib.id}>
+              <div className="yt-library-head">
+                <strong>{lib.name}<span className="yt-library-count">{lib.videos.length} {lib.videos.length === 1 ? 'video' : 'videos'}</span></strong>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="yt-small-button primary icon" onClick={() => playLibrary(lib)} disabled={!lib.videos.length} title="Play all: start this playlist; the rest go to your queue" aria-label="Play all"><Play size={14} fill="currentColor"/></button>
+                  {isAdmin && <button className="yt-small-button danger icon" onClick={() => deleteLibrary(lib.id)} title="Admin: delete this library" aria-label="Delete library"><Trash2 size={14}/></button>}
+                </div>
+              </div>
+              {lib.videos.length ? lib.videos.map((video) => <div className="yt-library-row" key={video.videoId}>
+                <button className="yt-library-thumb" onClick={() => playVideo(video.videoId)} title="Play this video" aria-label={`Play ${video.title}`}><img src={`https://i.ytimg.com/vi/${video.videoId}/mqdefault.jpg`} alt="" loading="lazy"/></button>
+                <span className="yt-queue-name">{video.title}</span>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="yt-small-button primary icon" onClick={() => playVideo(video.videoId)} title="Play this video" aria-label="Play"><Play size={14}/></button>
+                  {isAdmin && <button className="yt-small-button icon" onClick={() => removeFromLibrary(lib.id, video.videoId)} title="Admin: remove from this library" aria-label="Remove from library"><X size={14}/></button>}
+                </div>
+              </div>) : <p className="yt-cloud-status">{isAdmin ? 'No videos yet. Paste a YouTube link above to add the first one.' : 'No videos in this library yet.'}</p>}
+            </div>) : <p className="yt-cloud-status">{isAdmin ? 'No libraries yet. Create one above.' : 'No libraries have been published yet.'}</p>}
+            {isAdmin && <p className="yt-cloud-status">Draft mode: changes are saved only in this browser. Use the export icon, replace public/libraries.json, and deploy to publish them to everyone.</p>}
+          </section>
 
           <section id="saved-videos">
 
@@ -1073,11 +1365,11 @@ export default function App() {
 
                 <span style={{ color: '#aaa', fontSize: 13 }}>{filteredItems.length} videos</span>
 
-                <button className="yt-small-button" onClick={addAllToQueue} disabled={!filteredItems.length}><Plus size={14}/> Queue all</button>
+                <button className="yt-small-button icon" onClick={addAllToQueue} disabled={!filteredItems.length} title="Queue all: add every listed video to the queue" aria-label="Queue all"><ListPlus size={16}/></button>
 
-                <button className="yt-small-button" onClick={exportBackup} disabled={!items.length}><Download size={14}/> Backup</button>
+                <button className="yt-small-button icon" onClick={exportBackup} disabled={!items.length} title="Backup: download your saved videos as a JSON file" aria-label="Backup"><Download size={16}/></button>
 
-                <button className="yt-small-button" onClick={() => importRef.current?.click()}><Upload size={14}/> Import</button>
+                <button className="yt-small-button icon" onClick={() => importRef.current?.click()} title="Import: load saved videos from a backup JSON file" aria-label="Import"><Upload size={16}/></button>
 
                 <input ref={importRef} type="file" accept="application/json,.json" onChange={importBackup} style={{ display: 'none' }}/>
 
@@ -1091,7 +1383,7 @@ export default function App() {
 
                 <img className="yt-thumb" src={`https://i.ytimg.com/vi/${item.videoId}/mqdefault.jpg`} alt="" loading="lazy"/>
 
-                <span className="yt-thumb-overlay">{activeId === item.videoId ? <span className="yt-playing-badge"><Play size={14} fill="currentColor"/> PLAYING</span> : <Play size={42} fill="white" color="white"/>}</span>
+                <span className="yt-thumb-overlay">{activeId === item.videoId ? <span className="yt-playing-badge"><Play size={12} fill="currentColor"/> PLAYING</span> : <Play size={28} fill="white" color="white"/>}</span>
 
               </button>
 
@@ -1101,14 +1393,15 @@ export default function App() {
 
                 <div className="yt-actions">
 
-                  <button className="yt-small-button" onClick={() => toggleFavorite(item.videoId)} aria-label={favorites.includes(item.videoId) ? 'Remove from favorites' : 'Add to favorites'}><Heart size={14} fill={favorites.includes(item.videoId) ? 'currentColor' : 'none'}/> {favorites.includes(item.videoId) ? 'Favorited' : 'Favorite'}</button>
-                  <button className="yt-small-button" onClick={() => addToQueue(item)}><Plus size={14}/> Queue</button>
+                  <button className="yt-small-button icon" onClick={() => toggleFavorite(item.videoId)} title={favorites.includes(item.videoId) ? 'Remove from favorites' : 'Add to favorites'} aria-label={favorites.includes(item.videoId) ? 'Remove from favorites' : 'Add to favorites'} style={{ color: favorites.includes(item.videoId) ? '#ff4d6d' : undefined }}><Heart size={14} fill={favorites.includes(item.videoId) ? 'currentColor' : 'none'}/></button>
+                  <button className="yt-small-button icon" onClick={() => addToQueue(item)} title="Add to queue" aria-label="Add to queue"><ListPlus size={14}/></button>
+                  {isAdmin && <button className="yt-small-button icon" onClick={() => addToLibrary(item)} title="Admin: add to the selected library" aria-label="Add to library"><FolderPlus size={14}/></button>}
 
-                  <a className="yt-small-button" href={item.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}><ExternalLink size={14}/> Appended link</a>
+                  {/* <a className="yt-small-button" href={item.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}><ExternalLink size={14}/> Appended link</a> */}
 
-                  <button className="yt-small-button danger" aria-label="Delete saved video" onClick={() => { setItems((current) => current.filter((entry) => entry.videoId !== item.videoId)); setQueue((current) => current.filter((entry) => entry.videoId !== item.videoId)); if (activeId === item.videoId)
+                  <button className="yt-small-button danger icon" title="Remove from saved videos" aria-label="Delete saved video" onClick={() => { setItems((current) => current.filter((entry) => entry.videoId !== item.videoId)); setQueue((current) => current.filter((entry) => entry.videoId !== item.videoId)); if (activeId === item.videoId)
 
-                setActiveId(''); setNotice('Removed saved video.'); }}><Trash2 size={14}/> Remove</button>
+                setActiveId(''); setNotice('Removed saved video.'); }}><Trash2 size={14}/></button>
 
                 </div>
 
