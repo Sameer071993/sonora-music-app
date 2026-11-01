@@ -15,6 +15,14 @@ const BG_KEY = 'sonora-background-play';
 
 const TOUR_KEY = 'sonora-tour-seen';
 
+const POS_KEY = 'sonora-last-position';
+
+const NOTICE_SECONDS = 5; // information toasts close by themselves after this many seconds 4c3490
+
+// Logo image from the public folder. Put the exact file name first; the next ones are tried automatically if a file is missing.
+// const LOGO_FILES = ['logo.png', 'icon-192.png', 'pwa-192x192.png', 'icons/icon-192.png', 'apple-touch-icon.png', 'favicon.png'];
+const LOGO_FILES = ['sonora-192.png', 'sonora-192.webp', 'sonora-192.jpg', 'sonora-192.svg'];
+
 const DEFAULT_TITLE_PREFIX = 'YouTube video · ';
 const FAVORITES_KEY = 'sonora-favorites';
 const HISTORY_KEY = 'sonora-watch-history';
@@ -69,13 +77,23 @@ const TOUR_STEPS = [
     { target: '#add-link', title: 'Add a YouTube link', text: 'Paste any YouTube video link (watch, Shorts, live or youtu.be) and tap Save link. It is saved on this device and starts playing right away. Links shared to Sonora from other apps also land in this box.' },
     { target: '.yt-player-section', title: 'The player', text: 'Your video plays here. A loading screen shows while it starts. If it is slow, a hint appears after 10 seconds and the player reloads by itself after 1 minute.' },
     { target: '.yt-toolbar', title: 'Player controls', text: 'Buttons under the player:', points: ['Ad-free site: the player mode in use', 'Skip icon: play the next video from your queue', 'Reload icon: use it if the video is stuck or blank', 'Full screen icon: fill the whole screen with the player', 'Mini player icon: float the video in a corner while you browse (use its corner buttons to expand or close)', 'Headphones: background play', 'i icon: tips for background play'] },
-    { target: '.yt-toolbar', title: 'Background play', text: 'Turn on the headphones button (it turns red) to keep music going when you leave the app or turn off the screen. On Android the song should appear in the notification bar, and its Next button plays the next queued video. For the best result use the full-size or full-screen player, and install Sonora to your home screen. iPhone and iPad usually pause web apps when you leave them.' },
+    { target: '.yt-toolbar', title: 'Background play', text: 'Turn on the headphones button (it turns purple) to keep music going when you leave the app or turn off the screen. On Android the song should appear in the notification bar, and its Next button plays the next queued video. For the best result use the full-size or full-screen player, and install Sonora to your home screen. iPhone and iPad usually pause web apps when you leave them. If the video pauses when the screen turns off, tap Reload player to continue from about the same spot.' },
     { target: '#queue', title: 'Queue', text: 'Videos you add with the list-plus button, or with Play all from a library, wait here. Use the arrows to reorder, the shuffle icon to mix them, the play button to play one now, or clear everything. The next video does not start by itself: press the skip icon under the player.' },
     { target: '#libraries', title: 'Library', text: 'Playlists published with the app. Each playlist is a tab with its video count (swipe sideways to see all tabs).', points: ['Search box: finds videos inside the open playlist', 'List-plus button (Queue all): adds the listed videos to your queue', 'Play button (Play all): plays the first video and queues the rest', 'Lock icon: admin login for the site owner to create playlists, paste many links at once and export libraries.json'] },
     { target: '#saved-videos', title: 'Saved videos', text: 'Everything you saved. Tap a thumbnail to play it.', points: ['Heart: add or remove a favorite', 'List-plus: add to the queue', 'Trash: remove from your saved list', 'Header icons: Queue all, Backup (download a JSON file) and Import (load a backup)'] },
     { title: 'Keep your data safe', text: 'Saved videos, favorites, history and the queue are stored in this browser on this device only. Use Backup in Saved videos now and then, and Import to restore it on another device. To install Sonora, open your browser menu and choose Add to Home screen or Install app.' },
     { title: 'You are all set', text: 'Enjoy Sonora. Tap the Guide button next to the logo whenever you want to see this tour again.' },
 ];
+
+// Last saved (estimated) playback position of a video, in seconds. 0 when unknown or too small to matter.
+function readSavedPosition(videoId) {
+    try {
+        const saved = JSON.parse(localStorage.getItem(POS_KEY) || 'null');
+        return saved && saved.videoId === videoId && Number(saved.seconds) >= 5 ? Math.floor(Number(saved.seconds)) : 0;
+    } catch {
+        return 0;
+    }
+}
 
 function readStoredArray(key) {
     try {
@@ -138,15 +156,15 @@ function toAppendedUrl(input) {
 
 // Same URL that works in a separate tab is loaded inside the in-app player.
 
-function getPlayerSrc(mode, videoId) {
+function getPlayerSrc(mode, videoId, startAt = 0) {
 
     if (mode === 'official') {
 
-        return `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0&playsinline=1`;
+        return `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0&playsinline=1${startAt ? `&start=${startAt}` : ''}`;
 
     }
 
-    return `https://www.yout-ube.com/watch?v=${videoId}&autoplay=1`;
+    return `https://www.yout-ube.com/watch?v=${videoId}&autoplay=1${startAt ? `&t=${startAt}s` : ''}`;
 
 }
 
@@ -210,7 +228,10 @@ export default function App() {
 
     const [search, setSearch] = useState('');
 
-    const [activeId, setActiveId] = useState(() => localStorage.getItem(ACTIVE_KEY) || '');
+    const [activeId, setActiveId] = useState('');
+
+    // Last played video: shown as a tap-to-resume poster instead of loading the heavy player at app start.
+    const [resumeId, setResumeId] = useState(() => localStorage.getItem(ACTIVE_KEY) || '');
 
     const [queue, setQueue] = useState(() => {
 
@@ -233,6 +254,7 @@ export default function App() {
     const [mode, setMode] = useState(() => (localStorage.getItem(MODE_KEY) === 'official' ? 'official' : 'adfree'));
 
     const [reloadKey, setReloadKey] = useState(0);
+    const [startAt, setStartAt] = useState(0); // seconds the player should start from (used by Reload player)
     const [playerLoading, setPlayerLoading] = useState(false);
     const [slowLoad, setSlowLoad] = useState(false);
     const [miniPlayer, setMiniPlayer] = useState(false);
@@ -254,7 +276,9 @@ export default function App() {
     const [adminPassword, setAdminPassword] = useState('');
     const [libraryLink, setLibraryLink] = useState('');
 
-    const [notice, setNotice] = useState('');
+    const [notice, setNoticeText] = useState('');
+    const [noticeStamp, setNoticeStamp] = useState(0);
+    const [noticeLeft, setNoticeLeft] = useState(NOTICE_SECONDS);
     const [showStartupLoader, setShowStartupLoader] = useState(true);
 
     const [navPill, setNavPill] = useState('all'); // last clicked top pill (stays highlighted)
@@ -264,6 +288,7 @@ export default function App() {
     const [tourStep, setTourStep] = useState(null);
     const [tourRect, setTourRect] = useState(null);
     const [tourSeen, setTourSeen] = useState(() => localStorage.getItem(TOUR_KEY) === '1');
+    const [logoIndex, setLogoIndex] = useState(0);
 
     const triedTitles = useRef(new Set());
 
@@ -272,6 +297,11 @@ export default function App() {
     const bgAudioRef = useRef(null);
 
     const playNextRef = useRef(null);
+
+    const reloadRef = useRef(null);
+
+    // Rough playback clock: when the current player loaded, where it started, and where it probably paused when the screen went off.
+    const playClockRef = useRef({ startedAt: 0, base: 0, frozenPos: null, hiddenAt: null });
 
     useEffect(() => {
         // Brief branded intro on every fresh app load or page refresh.
@@ -345,13 +375,13 @@ export default function App() {
 
     useEffect(() => {
 
-        if (activeId)
+        if (activeId) {
 
             localStorage.setItem(ACTIVE_KEY, activeId);
 
-        else
+            setResumeId(activeId);
 
-            localStorage.removeItem(ACTIVE_KEY);
+        }
 
     }, [activeId]);
 
@@ -450,6 +480,10 @@ export default function App() {
 
     const activeItem = useMemo(() => items.find((item) => item.videoId === activeId) || queue.find((item) => item.videoId === activeId) || libraries.flatMap((lib) => lib.videos || []).find((item) => item.videoId === activeId), [items, queue, libraries, activeId]);
 
+    const resumeItem = !activeId && resumeId ? (items.find((item) => item.videoId === resumeId) || queue.find((item) => item.videoId === resumeId) || libraries.flatMap((lib) => lib.videos || []).find((item) => item.videoId === resumeId)) : null;
+
+    const resumeSeconds = resumeItem ? readSavedPosition(resumeItem.videoId) : 0;
+
     const filteredItems = useMemo(() => {
 
         const term = search.trim().toLowerCase();
@@ -458,6 +492,90 @@ export default function App() {
         if (!term) return base;
         return base.filter((item) => item.title.toLowerCase().includes(term) || item.videoId.toLowerCase().includes(term));
     }, [items, search, showFavoritesOnly, favorites]);
+
+    // ---- Information toast: closes by itself after 5 seconds, with a countdown; the cross closes it sooner ----
+    function setNotice(message) {
+        setNoticeText(message);
+        setNoticeStamp((value) => value + 1);
+    }
+
+    useEffect(() => {
+        if (!notice) return undefined;
+        setNoticeLeft(NOTICE_SECONDS);
+        const interval = window.setInterval(() => setNoticeLeft((value) => Math.max(value - 1, 0)), 1000);
+        const timer = window.setTimeout(() => setNoticeText(''), NOTICE_SECONDS * 1000);
+        return () => {
+            window.clearInterval(interval);
+            window.clearTimeout(timer);
+        };
+    }, [notice, noticeStamp]);
+
+    // ---- Resume position (best effort) ----
+    function formatClock(totalSeconds) {
+        return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`;
+    }
+
+    // Reload player. If the page was away (for example the screen was turned off) the player probably paused a few seconds later,
+    // so restart from about that spot. The position is an estimate and only works if the player site accepts a start time.
+    function reloadPlayer() {
+        const clock = playClockRef.current;
+        if (clock.frozenPos != null && clock.frozenPos >= 5) {
+            const seconds = Math.floor(clock.frozenPos);
+            setStartAt(seconds);
+            setNotice(`Reloading from about ${formatClock(seconds)}. The spot is an estimate, so you may need to nudge it.`);
+        }
+        setReloadKey((key) => key + 1);
+    }
+
+    // Plays the last video again, starting from the position saved for it (estimated, see savePosition below).
+    function resumeLast() {
+        if (!resumeItem) return;
+        const seconds = readSavedPosition(resumeItem.videoId);
+        playVideo(resumeItem.videoId);
+        if (seconds) {
+            setStartAt(seconds);
+            setNotice(`Resuming from about ${formatClock(seconds)}. If it starts from the beginning, the player site does not accept a start time.`);
+        }
+    }
+
+    // Saves an estimated playback position every few seconds (and when the page closes or reloads).
+    // Sonora cannot read the real time from the player, so this assumes the video kept playing since it loaded.
+    useEffect(() => {
+        if (!activeId) return undefined;
+        const savePosition = () => {
+            const clock = playClockRef.current;
+            if (!clock.startedAt) return;
+            const pos = clock.frozenPos != null ? clock.frozenPos : clock.base + (Date.now() - clock.startedAt) / 1000;
+            try {
+                localStorage.setItem(POS_KEY, JSON.stringify({ videoId: activeId, seconds: Math.floor(pos), savedAt: Date.now() }));
+            } catch { /* storage full or blocked */ }
+        };
+        const timer = window.setInterval(savePosition, 5000);
+        window.addEventListener('pagehide', savePosition);
+        window.addEventListener('beforeunload', savePosition);
+        return () => {
+            window.clearInterval(timer);
+            window.removeEventListener('pagehide', savePosition);
+            window.removeEventListener('beforeunload', savePosition);
+        };
+    }, [activeId]);
+
+    useEffect(() => {
+        const onVisibility = () => {
+            const clock = playClockRef.current;
+            if (document.visibilityState === 'hidden') {
+                clock.hiddenAt = Date.now();
+            } else if (clock.hiddenAt && clock.startedAt) {
+                // The player usually pauses a few seconds after the screen turns off, so remember about where that was.
+                if (Date.now() - clock.hiddenAt > 10000 && clock.frozenPos == null) {
+                    clock.frozenPos = clock.base + (clock.hiddenAt + 5000 - clock.startedAt) / 1000;
+                }
+                clock.hiddenAt = null;
+            }
+        };
+        document.addEventListener('visibilitychange', onVisibility);
+        return () => document.removeEventListener('visibilitychange', onVisibility);
+    }, []);
 
     // ---- Guided tour ----
     function startTour() {
@@ -561,7 +679,7 @@ export default function App() {
             ensureBgAudio().play().catch(() => { });
             setNotice(isIOS
                 ? 'Background play is on, but iPhone/iPad usually pause web apps when you leave them. Tap the info button for tips.'
-                : 'Background play is on. Open the full-size player (not the mini player) before leaving the app. The song details should appear in your notification bar.');
+                : 'Background play is on. Music can continue while you use other apps. Android or the player site may still pause it when the screen turns off - tap the info button for tips.');
         } else {
             setNotice('Background play is off.');
         }
@@ -608,6 +726,21 @@ export default function App() {
                 });
                 mediaSession.playbackState = 'playing';
                 mediaSession.setActionHandler('nexttrack', () => { if (playNextRef.current) playNextRef.current(); });
+                // Best effort only: these commands work if the player site listens for them; otherwise they are ignored.
+                const sendPlayerCommand = (func) => {
+                    const frame = document.querySelector('.yt-player iframe');
+                    if (frame && frame.contentWindow) frame.contentWindow.postMessage(JSON.stringify({ event: 'command', func, args: '' }), '*');
+                };
+                mediaSession.setActionHandler('play', () => {
+                    if (playClockRef.current.frozenPos != null && reloadRef.current) reloadRef.current();
+                    else sendPlayerCommand('playVideo');
+                    ensureBgAudio().play().catch(() => { });
+                    mediaSession.playbackState = 'playing';
+                });
+                mediaSession.setActionHandler('pause', () => {
+                    sendPlayerCommand('pauseVideo');
+                    mediaSession.playbackState = 'paused';
+                });
             } catch { /* not supported */ }
         }
     }, [bgPlay, activeId, activeItem ? activeItem.title : '']);
@@ -624,6 +757,8 @@ export default function App() {
     }, [bgPlay, activeId]);
 
     function playVideo(videoId) {
+        setStartAt(0);
+        playClockRef.current = { startedAt: 0, base: 0, frozenPos: null, hiddenAt: null };
         setActiveId(videoId);
         setPlayerLoading(true);
         setMiniPlayer(false);
@@ -1170,17 +1305,19 @@ export default function App() {
 
     playNextRef.current = playNextQueued;
 
+    reloadRef.current = reloadPlayer;
+
     return (<div className="yt-app">
 
       <style>{`
 
         @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
 
-        :root { color-scheme: dark; font-family: Roboto, Arial, sans-serif; background: #0f0f0f; color: #f1f1f1; }
+        :root { color-scheme: dark; font-family: Roboto, Arial, sans-serif; background: #050507; color: #f1f1f1; --sonora-accent: #4c3490; --sonora-accent-hover: #6046ad; --sonora-black: #050507; }
 
         * { box-sizing: border-box; }
 
-        body { margin: 0; background: #0f0f0f; }
+        body { margin: 0; background: #050507; }
 
         html { scroll-padding-top: 140px; }
 
@@ -1188,21 +1325,21 @@ export default function App() {
 
         button { cursor: pointer; }
 
-        .yt-app { min-height: 100vh; background: #0f0f0f; color: #f1f1f1; }
+        .yt-app { min-height: 100vh; background: #050507; color: #f1f1f1; }
 
-        .sonora-intro { position: fixed; inset: 0; z-index: 99999; display: grid; place-items: center; overflow: hidden; background: radial-gradient(ellipse at 50% 42%, #241018 0%, #100d15 42%, #050609 100%); transition: opacity .45s ease, visibility .45s ease; }
-        .sonora-intro::before, .sonora-intro::after { content: ''; position: absolute; width: min(70vw, 620px); aspect-ratio: 1; border: 1px solid #ff315b22; border-radius: 50%; animation: sonora-orbit 7s linear infinite; }
-        .sonora-intro::after { width: min(88vw, 780px); border-color: #4be8ff18; animation-direction: reverse; animation-duration: 11s; }
+        .sonora-intro { position: fixed; inset: 0; z-index: 99999; display: grid; place-items: center; overflow: hidden; background: radial-gradient(ellipse at 50% 42%, #17112b 0%, #0b0912 42%, #030305 100%); transition: opacity .45s ease, visibility .45s ease; }
+        .sonora-intro::before, .sonora-intro::after { content: ''; position: absolute; width: min(70vw, 620px); aspect-ratio: 1; border: 1px solid #4c349022; border-radius: 50%; animation: sonora-orbit 7s linear infinite; }
+        .sonora-intro::after { width: min(88vw, 780px); border-color: #4c349018; animation-direction: reverse; animation-duration: 11s; }
         .sonora-intro-inner { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 24px; text-align: center; }
-        .sonora-vinyl-stage { width: 156px; height: 156px; display: grid; place-items: center; perspective: 700px; filter: drop-shadow(0 20px 30px #ff174455); }
-        .sonora-vinyl { position: relative; width: 142px; height: 142px; border-radius: 50%; background: repeating-radial-gradient(circle at center, #18191f 0 4px, #2c2d35 5px 6px, #111218 7px 10px); border: 2px solid #45434c; box-shadow: inset 0 0 0 8px #0b0c11, inset 0 0 0 10px #35333b, 0 0 0 5px #ff315b12; transform-style: preserve-3d; animation: sonora-vinyl-spin 3.4s linear infinite, sonora-vinyl-float 2.4s ease-in-out infinite; }
-        .sonora-vinyl::before { content: ''; position: absolute; inset: 35px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #ff8b9e, #fa1749 38%, #9a062a 72%, #3b0618); border: 3px solid #f7a0b0; box-shadow: 0 0 22px #ff174477; }
+        .sonora-vinyl-stage { width: 156px; height: 156px; display: grid; place-items: center; perspective: 700px; filter: drop-shadow(0 20px 30px #4c349055); }
+        .sonora-vinyl { position: relative; width: 142px; height: 142px; border-radius: 50%; background: repeating-radial-gradient(circle at center, #18191f 0 4px, #2c2d35 5px 6px, #111218 7px 10px); border: 2px solid #45434c; box-shadow: inset 0 0 0 8px #0b0c11, inset 0 0 0 10px #35333b, 0 0 0 5px #4c349012; transform-style: preserve-3d; animation: sonora-vinyl-spin 3.4s linear infinite, sonora-vinyl-float 2.4s ease-in-out infinite; }
+        .sonora-vinyl::before { content: ''; position: absolute; inset: 35px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #9b86dc, #6b50b8 38%, #35245f 72%, #17102b); border: 3px solid #b7a6ee; box-shadow: 0 0 22px #4c349077; }
         .sonora-vinyl::after { content: ''; position: absolute; width: 8px; height: 8px; left: calc(50% - 4px); top: calc(50% - 4px); border-radius: 50%; background: #f5e9ee; box-shadow: 0 0 6px #fff; }
-        .sonora-loader-orbit { position: absolute; width: 154px; height: 154px; border: 2px solid transparent; border-top-color: #ff315b; border-right-color: #45e7ff; border-radius: 50%; transform: rotateX(64deg) rotateZ(-20deg); animation: sonora-orbit 1.4s linear infinite; }
-        .sonora-intro-name { margin: 0; color: #fff; font-size: clamp(30px, 6vw, 43px); font-weight: 800; letter-spacing: .22em; text-indent: .22em; text-shadow: 0 0 26px #ff315b66; }
+        .sonora-loader-orbit { position: absolute; width: 154px; height: 154px; border: 2px solid transparent; border-top-color: #4c3490; border-right-color: #9b86dc; border-radius: 50%; transform: rotateX(64deg) rotateZ(-20deg); animation: sonora-orbit 1.4s linear infinite; }
+        .sonora-intro-name { margin: 0; color: #fff; font-size: clamp(30px, 6vw, 43px); font-weight: 800; letter-spacing: .22em; text-indent: .22em; text-shadow: 0 0 26px #4c349066; }
         .sonora-intro-tagline { margin: -13px 0 0; color: #b9b5c4; font-size: 12px; letter-spacing: .22em; text-transform: uppercase; }
         .sonora-equalizer { height: 26px; display: flex; align-items: center; justify-content: center; gap: 5px; }
-        .sonora-equalizer span { width: 4px; height: 7px; border-radius: 5px; background: linear-gradient(180deg, #53edff, #ff315b); box-shadow: 0 0 10px #ff315b55; animation: sonora-bars .72s ease-in-out infinite alternate; }
+        .sonora-equalizer span { width: 4px; height: 7px; border-radius: 5px; background: linear-gradient(180deg, #b7a6ee, #4c3490); box-shadow: 0 0 10px #4c349055; animation: sonora-bars .72s ease-in-out infinite alternate; }
         .sonora-equalizer span:nth-child(2n) { animation-delay: .18s; }
         .sonora-equalizer span:nth-child(3n) { animation-delay: .34s; }
         .sonora-loading-caption { margin: -13px 0 0; color: #777483; font-size: 11px; letter-spacing: .16em; text-transform: uppercase; }
@@ -1212,53 +1349,53 @@ export default function App() {
         @keyframes sonora-bars { from { height: 5px; opacity: .65; } to { height: 24px; opacity: 1; } }
         @media (prefers-reduced-motion: reduce) { .sonora-vinyl, .sonora-loader-orbit, .sonora-intro::before, .sonora-intro::after, .sonora-equalizer span { animation-duration: 2.5s; } }
 
-        .yt-header { height: 64px; padding: 0 4%; display: flex; align-items: center; gap: 22px; position: fixed; top: 0; left: 0; right: 0; z-index: 50; background: #0f0f0f; border-bottom: 1px solid #272727; }
+        .yt-header { height: 64px; padding: 0 4%; display: flex; align-items: center; gap: 22px; position: fixed; top: 0; left: 0; right: 0; z-index: 50; background: #050507; border-bottom: 1px solid #30264b; }
 
         .yt-brand { display: flex; align-items: center; gap: 8px; color: #f1f1f1; font-weight: 700; font-size: 20px; letter-spacing: -.6px; white-space: nowrap; }
 
-        .yt-brand-icon { color: #ff0033; display: flex; align-items: center; }
+        .yt-brand-icon { color: #f1eced; display: flex; align-items: center; }
 
         .yt-search { display: flex; width: min(660px, 60vw); margin: 0 auto; height: 40px; }
 
-        .yt-search input { flex: 1; min-width: 0; border: 1px solid #303030; border-right: 0; border-radius: 22px 0 0 22px; background: #121212; padding: 0 18px; color: #f1f1f1; outline: none; }
+        .yt-search input { flex: 1; min-width: 0; border: 1px solid #30264b; border-right: 0; border-radius: 22px 0 0 22px; background: #0b0912; padding: 0 18px; color: #f1f1f1; outline: none; }
 
-        .yt-search input:focus { border-color: #1c62b9; }
+        .yt-search input:focus { border-color: #4c3490; }
 
-        .yt-search button { width: 64px; display: grid; place-items: center; border: 1px solid #303030; border-radius: 0 22px 22px 0; background: #222; color: #f1f1f1; }
+        .yt-search button { width: 64px; display: grid; place-items: center; border: 1px solid #30264b; border-radius: 0 22px 22px 0; background: #191427; color: #f1f1f1; }
 
         .yt-layout { display: block; margin-top: 64px; min-height: calc(100vh - 64px); }
 
-        .yt-sidebar { padding: 18px 12px; border-right: 1px solid #272727; }
+        .yt-sidebar { padding: 18px 12px; border-right: 1px solid #30264b; }
 
         .yt-side-button { display: flex; width: 100%; align-items: center; gap: 22px; padding: 12px 16px; border: 0; border-radius: 10px; background: transparent; color: #f1f1f1; text-align: left; }
 
-        .yt-side-button:hover, .yt-side-button.active { background: #272727; }
+        .yt-side-button:hover, .yt-side-button.active { background: #191427; }
 
         .yt-side-note { margin: 22px 14px; color: #aaa; font-size: 12px; line-height: 1.5; }
 
         .yt-main { width: 100%; max-width: 1600px; padding: 24px clamp(16px, 3vw, 44px) 80px; margin: 0 auto; }
 
-        .yt-pills { display: flex; gap: 10px; overflow-x: auto; padding: 12px 0; margin-bottom: 10px; scrollbar-width: none; -webkit-overflow-scrolling: touch; position: sticky; top: 64px; z-index: 40; background: #0f0f0f; border-bottom: 1px solid #272727; }
+        .yt-pills { display: flex; gap: 10px; overflow-x: auto; padding: 12px 0; margin-bottom: 10px; scrollbar-width: none; -webkit-overflow-scrolling: touch; position: sticky; top: 64px; z-index: 40; background: #050507; border-bottom: 1px solid #30264b; }
 
-        .yt-pill { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; white-space: nowrap; border: 0; border-radius: 8px; padding: 9px 13px; background: #272727; color: #f1f1f1; font-size: 14px; }
+        .yt-pill { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; white-space: nowrap; border: 0; border-radius: 8px; padding: 9px 13px; background: #191427; color: #f1f1f1; font-size: 14px; }
 
-        .yt-pill-count { min-width: 20px; padding: 1px 6px; border-radius: 10px; background: #3f3f3f; color: #f1f1f1; font-size: 11px; font-weight: 700; line-height: 1.5; text-align: center; }
+        .yt-pill-count { min-width: 20px; padding: 1px 6px; border-radius: 10px; background: #2c2245; color: #f1f1f1; font-size: 11px; font-weight: 700; line-height: 1.5; text-align: center; }
 
         .yt-pill.selected .yt-pill-count, .yt-pill:focus .yt-pill-count { background: #ffffff33; color: #fff; }
 
-        .yt-pill.selected { background: #f1f1f1; color: #0f0f0f; }
+        .yt-pill.selected { background: #4c3490; color: #fff; box-shadow: 0 4px 14px #4c349044; }
 
-        .yt-add-panel { border: 1px solid #303030; border-radius: 16px; padding: 18px; margin-bottom: 26px; background: #161616; }
+        .yt-add-panel { border: 1px solid #30264b; border-radius: 16px; padding: 18px; margin-bottom: 26px; background: #100d18; }
 
         .yt-section-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 14px; font-size: 20px; font-weight: 700; }
 
         .yt-add-form { display: flex; gap: 10px; }
 
-        .yt-add-form input { min-width: 0; flex: 1; border: 1px solid #3f3f3f; border-radius: 10px; padding: 12px 14px; background: #0f0f0f; color: #f1f1f1; outline: none; }
+        .yt-add-form input { min-width: 0; flex: 1; border: 1px solid #40345f; border-radius: 10px; padding: 12px 14px; background: #050507; color: #f1f1f1; outline: none; }
 
-        .yt-red-button { border: 0; border-radius: 10px; padding: 0 16px; min-height: 42px; display: inline-flex; justify-content: center; align-items: center; gap: 8px; background: #ff0033; color: #fff; font-weight: 500; white-space: nowrap; }
+        .yt-red-button { border: 0; border-radius: 10px; padding: 0 16px; min-height: 42px; display: inline-flex; justify-content: center; align-items: center; gap: 8px; background: #4c3490; color: #fff; font-weight: 500; white-space: nowrap; }
 
-        .yt-red-button:hover { background: #cc0029; }
+        .yt-red-button:hover { background: #6046ad; box-shadow: 0 5px 18px #4c349044; }
 
         .yt-subtle { color: #aaa; font-size: 13px; line-height: 1.5; margin: 12px 0 0; }
 
@@ -1268,7 +1405,7 @@ export default function App() {
 
         .yt-player { position: relative; width: 100%; max-width: 1100px; aspect-ratio: 16 / 9; background: #000; overflow: hidden; border-radius: 14px; }
         .yt-loading-overlay { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 20px; background: #0b0b0b; color: #f1f1f1; text-align: center; }
-        .yt-loader-spinner { width: 42px; height: 42px; border: 4px solid #454545; border-top-color: #ff0033; border-radius: 50%; animation: sonora-spin .8s linear infinite; }
+        .yt-loader-spinner { width: 42px; height: 42px; border: 4px solid #454545; border-top-color: #4c3490; border-radius: 50%; animation: sonora-spin .8s linear infinite; }
         .yt-loading-title { font-size: 16px; font-weight: 700; }
         .yt-loading-subtitle { color: #aaa; font-size: 13px; }
         .yt-loading-hint { max-width: 420px; color: #ffd24d; font-size: 13px; line-height: 1.5; }
@@ -1279,13 +1416,20 @@ export default function App() {
         .yt-player:fullscreen .yt-player-frame { width: 100%; height: 100%; }
         .yt-player:fullscreen iframe { width: 100%; height: 100%; }
 
-        .yt-player-empty { width: 100%; max-width: 1100px; aspect-ratio: 16 / 9; display: grid; place-items: center; border-radius: 14px; background: #181818; color: #aaa; text-align: center; padding: 24px; }
+        .yt-player-empty { width: 100%; max-width: 1100px; aspect-ratio: 16 / 9; display: grid; place-items: center; border-radius: 14px; background: #100d18; color: #aaa; text-align: center; padding: 24px; }
 
         .yt-player-empty strong { display: block; color: #f1f1f1; margin: 12px 0 6px; }
 
+        .yt-player-empty.yt-resume { position: relative; padding: 0; overflow: hidden; }
+        .yt-resume-button { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; padding: 0; background: #000; color: #fff; }
+        .yt-resume-button img { width: 100%; height: 100%; object-fit: cover; opacity: .5; display: block; }
+        .yt-resume-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 16px; text-align: center; }
+        .yt-resume-overlay strong { margin: 4px 0 0; color: #fff; }
+        .yt-resume-title { max-width: 90%; font-size: 13px; color: #ddd; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
         .yt-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: 1100px; margin: 12px 0 0; }
 
-        .yt-seg { display: inline-flex; border-radius: 18px; overflow: hidden; background: #272727; }
+        .yt-seg { display: inline-flex; border-radius: 18px; overflow: hidden; background: #191427; }
 
         .yt-seg button { border: 0; background: transparent; color: #f1f1f1; padding: 7px 12px; font-size: 12px; }
 
@@ -1299,15 +1443,15 @@ export default function App() {
 
         .yt-video-card { min-width: 0; }
 
-        .yt-thumb-wrap { position: relative; overflow: hidden; border-radius: 12px; aspect-ratio: 16 / 9; background: #272727; cursor: pointer; border: 0; padding: 0; width: 100%; display: block; text-align: left; }
+        .yt-thumb-wrap { position: relative; overflow: hidden; border-radius: 12px; aspect-ratio: 16 / 9; background: #191427; cursor: pointer; border: 0; padding: 0; width: 100%; display: block; text-align: left; }
 
-        .yt-thumb-wrap:focus-visible { outline: 2px solid #3ea6ff; outline-offset: 3px; }
+        .yt-thumb-wrap:focus-visible { outline: 2px solid #9b86dc; outline-offset: 3px; }
 
         .yt-thumb-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: #0000; transition: background .18s ease; }
 
         .yt-thumb-wrap:hover .yt-thumb-overlay { background: #0006; }
 
-        .yt-playing-badge { display: inline-flex; align-items: center; gap: 7px; padding: 8px 11px; border-radius: 999px; background: #ff0033; color: white; font-size: 12px; font-weight: 700; box-shadow: 0 4px 18px #0008; }
+        .yt-playing-badge { display: inline-flex; align-items: center; gap: 7px; padding: 8px 11px; border-radius: 999px; background: #4c3490; color: white; font-size: 12px; font-weight: 700; box-shadow: 0 4px 18px #0008; }
 
         .yt-playing-badge svg { animation: sonora-pulse 1.25s ease-in-out infinite; }
 
@@ -1317,20 +1461,20 @@ export default function App() {
         .yt-mini-controls { display: none; position: absolute; z-index: 4; top: 8px; right: 8px; gap: 6px; }
         .yt-player.yt-mini-player .yt-mini-controls { display: flex; }
         .yt-mini-controls button { border: 0; border-radius: 18px; background: #171717e8; color: #fff; padding: 7px; display: grid; place-items: center; }
-        .yt-cloud-panel { border: 1px solid #303030; border-radius: 14px; background: #161616; padding: 16px; margin: 24px 0; }
+        .yt-cloud-panel { border: 1px solid #30264b; border-radius: 14px; background: #100d18; padding: 16px; margin: 24px 0; }
         .yt-cloud-form { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
-        .yt-cloud-form input { flex: 1; min-width: 160px; border: 1px solid #3f3f3f; border-radius: 9px; padding: 10px 12px; background: #0f0f0f; color: #f1f1f1; }
-        .yt-cloud-form textarea { flex: 1; min-width: 160px; min-height: 84px; resize: vertical; border: 1px solid #3f3f3f; border-radius: 9px; padding: 10px 12px; background: #0f0f0f; color: #f1f1f1; font: inherit; }
+        .yt-cloud-form input { flex: 1; min-width: 160px; border: 1px solid #40345f; border-radius: 9px; padding: 10px 12px; background: #050507; color: #f1f1f1; }
+        .yt-cloud-form textarea { flex: 1; min-width: 160px; min-height: 84px; resize: vertical; border: 1px solid #40345f; border-radius: 9px; padding: 10px 12px; background: #050507; color: #f1f1f1; font: inherit; }
         .yt-cloud-status { color: #aaa; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
-        .yt-history-list { margin-top: 10px; border-top: 1px solid #303030; }
-        .yt-history-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #303030; }
+        .yt-history-list { margin-top: 10px; border-top: 1px solid #30264b; }
+        .yt-history-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #30264b; }
         .yt-player-frame { position: relative; width: 100%; height: 100%; }
 
         .yt-thumb { width: 100%; height: 100%; display: block; object-fit: cover; }
 
         .yt-card-body { display: flex; align-items: flex-start; gap: 10px; padding-top: 12px; }
 
-        .yt-mini-icon { flex: 0 0 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: #272727; color: #ff0033; }
+        .yt-mini-icon { flex: 0 0 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: #191427; color: #4c3490; }
 
         .yt-card-info { min-width: 0; flex: 1; }
 
@@ -1340,13 +1484,13 @@ export default function App() {
 
         .yt-actions { display: flex; flex-wrap: wrap; gap: 7px; }
 
-        .yt-small-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 10px; border: 0; border-radius: 18px; background: #272727; color: #f1f1f1; font-size: 12px; }
+        .yt-small-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 10px; border: 0; border-radius: 18px; background: #191427; color: #f1f1f1; font-size: 12px; }
 
-        .yt-small-button:hover { background: #3f3f3f; }
+        .yt-small-button:hover { background: #2c2245; }
 
-        .yt-small-button.primary { background: #f1f1f1; color: #0f0f0f; }
+        .yt-small-button.primary { background: #4c3490; color: #fff; }
 
-        .yt-small-button.danger { color: #ff8080; }
+        .yt-small-button.danger { color: #b7a6ee; }
 
         /* Compact saved-video cards: smaller thumbnails; the main player stays large. */
         .yt-video-grid .yt-thumb-wrap { border-radius: 8px; }
@@ -1362,56 +1506,56 @@ export default function App() {
         .yt-small-button.icon { width: 34px; height: 34px; padding: 0; }
         .yt-video-grid .yt-small-button.icon { width: 30px; height: 30px; padding: 0; }
         .yt-small-button:disabled { opacity: .45; cursor: not-allowed; }
-        .yt-small-button.bg-on { background: #ff0033; color: #fff; }
-        .yt-bg-help { max-width: 1100px; margin: 12px 0 0; padding: 14px 16px; border: 1px solid #303030; border-radius: 12px; background: #161616; color: #bbb; font-size: 13px; line-height: 1.6; }
+        .yt-small-button.bg-on { background: #4c3490; color: #fff; }
+        .yt-bg-help { max-width: 1100px; margin: 12px 0 0; padding: 14px 16px; border: 1px solid #30264b; border-radius: 12px; background: #100d18; color: #bbb; font-size: 13px; line-height: 1.6; }
         .yt-bg-help strong { color: #f1f1f1; font-size: 14px; }
         .yt-bg-help ol { margin: 8px 0; padding-left: 20px; }
         .yt-bg-help p { margin: 8px 0; }
 
         /* Button click highlight */
-        button { -webkit-tap-highlight-color: #ff003355; }
+        button { -webkit-tap-highlight-color: #4c349055; }
         .yt-small-button, .yt-pill, .yt-red-button, .yt-side-button, .yt-seg button { transition: background .12s ease, color .12s ease, transform .12s ease, box-shadow .12s ease; }
-        .yt-small-button:active:not(:disabled), .yt-small-button.primary:active:not(:disabled), .yt-small-button.danger:active:not(:disabled) { background: #ff0033; color: #fff; transform: scale(.93); box-shadow: 0 0 0 3px #ff003355; }
-        .yt-pill:active, .yt-pill.selected:active { background: #ff0033; color: #fff; transform: scale(.96); }
-        .yt-red-button:active { background: #8f001e; transform: scale(.97); box-shadow: 0 0 0 3px #ff003355; }
-        .yt-side-button:active { background: #ff003344; }
-        .yt-seg button:active { background: #ff0033; color: #fff; }
-        .yt-thumb-wrap:active .yt-thumb-overlay { background: #ff003366; }
-        .yt-library-thumb:active { outline: 2px solid #ff0033; }
-        .yt-small-button:focus-visible, .yt-pill:focus-visible, .yt-red-button:focus-visible, .yt-side-button:focus-visible { outline: 2px solid #3ea6ff; outline-offset: 2px; }
+        .yt-small-button:active:not(:disabled), .yt-small-button.primary:active:not(:disabled), .yt-small-button.danger:active:not(:disabled) { background: #4c3490; color: #fff; transform: scale(.93); box-shadow: 0 0 0 3px #4c349055; }
+        .yt-pill:active, .yt-pill.selected:active { background: #4c3490; color: #fff; transform: scale(.96); }
+        .yt-red-button:active { background: #30205c; transform: scale(.97); box-shadow: 0 0 0 3px #4c349055; }
+        .yt-side-button:active { background: #4c349044; }
+        .yt-seg button:active { background: #4c3490; color: #fff; }
+        .yt-thumb-wrap:active .yt-thumb-overlay { background: #4c349066; }
+        .yt-library-thumb:active { outline: 2px solid #4c3490; }
+        .yt-small-button:focus-visible, .yt-pill:focus-visible, .yt-red-button:focus-visible, .yt-side-button:focus-visible { outline: 2px solid #9b86dc; outline-offset: 2px; }
         /* Clicked button keeps the highlight colour (focus) until something else is clicked */
-        .yt-small-button:focus:not(:disabled), .yt-small-button.primary:focus:not(:disabled), .yt-small-button.danger:focus:not(:disabled), .yt-seg button:focus { background: #ff0033; color: #fff; }
-        .yt-red-button:focus { background: #b3001f; box-shadow: 0 0 0 3px #ff003355; }
-        .yt-pill.selected, .yt-pill:focus { background: #ff0033; color: #fff; }
-        .yt-side-button.active, .yt-side-button:focus { background: #ff0033; color: #fff; }
-        .yt-side-button.active:hover, .yt-pill.selected:hover { background: #cc0029; }
+        .yt-small-button:focus:not(:disabled), .yt-small-button.primary:focus:not(:disabled), .yt-small-button.danger:focus:not(:disabled), .yt-seg button:focus { background: #4c3490; color: #fff; }
+        .yt-red-button:focus { background: #38256d; box-shadow: 0 0 0 3px #4c349055; }
+        .yt-pill.selected, .yt-pill:focus { background: #4c3490; color: #fff; }
+        .yt-side-button.active, .yt-side-button:focus { background: #4c3490; color: #fff; }
+        .yt-side-button.active:hover, .yt-pill.selected:hover { background: #38256d; }
 
         /* Library */
-        .yt-library-panel { border: 1px solid #303030; border-radius: 14px; background: #161616; padding: 16px; margin: 24px 0 34px; }
+        .yt-library-panel { border: 1px solid #30264b; border-radius: 14px; background: #100d18; padding: 16px; margin: 24px 0 34px; }
         .yt-library-target { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: #aaa; font-size: 13px; margin: 4px 0 12px; }
-        .yt-library-target select { border: 1px solid #3f3f3f; border-radius: 9px; padding: 8px 10px; background: #0f0f0f; color: #f1f1f1; }
-        .yt-library-card { border-top: 1px solid #303030; padding: 12px 0; }
+        .yt-library-target select { border: 1px solid #40345f; border-radius: 9px; padding: 8px 10px; background: #050507; color: #f1f1f1; }
+        .yt-library-card { border-top: 1px solid #30264b; padding: 12px 0; }
         .yt-library-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
         .yt-library-count { color: #aaa; font-size: 12px; font-weight: 400; margin-left: 8px; }
         .yt-library-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; }
-        .yt-library-thumb { flex: 0 0 96px; width: 96px; aspect-ratio: 16 / 9; border: 0; padding: 0; border-radius: 6px; overflow: hidden; background: #272727; }
+        .yt-library-thumb { flex: 0 0 96px; width: 96px; aspect-ratio: 16 / 9; border: 0; padding: 0; border-radius: 6px; overflow: hidden; background: #191427; }
         .yt-library-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
         .yt-library-row .yt-queue-name { flex: 1; min-width: 0; }
         .yt-library-list { height: 420px; overflow-y: auto; overscroll-behavior: auto; padding-right: 4px; }
-        .yt-lib-search { display: flex; align-items: center; gap: 8px; height: 38px; margin: 6px 0 12px; padding: 0 12px; border: 1px solid #3f3f3f; border-radius: 22px; background: #0f0f0f; color: #aaa; }
-        .yt-lib-search:focus-within { border-color: #1c62b9; }
+        .yt-lib-search { display: flex; align-items: center; gap: 8px; height: 38px; margin: 6px 0 12px; padding: 0 12px; border: 1px solid #40345f; border-radius: 22px; background: #050507; color: #aaa; }
+        .yt-lib-search:focus-within { border-color: #4c3490; }
         .yt-lib-search input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: #f1f1f1; }
         .yt-lib-clear { display: grid; place-items: center; border: 0; background: transparent; color: #aaa; padding: 4px; border-radius: 50%; }
         .yt-lib-tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
-        .yt-lib-tab { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; white-space: nowrap; border: 0; border-radius: 8px; padding: 8px 13px; background: #272727; color: #f1f1f1; font-size: 13px; transition: background .12s ease, transform .12s ease; }
-        .yt-lib-tab:hover { background: #3f3f3f; }
+        .yt-lib-tab { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; white-space: nowrap; border: 0; border-radius: 8px; padding: 8px 13px; background: #191427; color: #f1f1f1; font-size: 13px; transition: background .12s ease, transform .12s ease; }
+        .yt-lib-tab:hover { background: #2c2245; }
         .yt-lib-tab:active { transform: scale(.96); }
-        .yt-lib-tab.selected { background: #ff0033; color: #fff; }
+        .yt-lib-tab.selected { background: #4c3490; color: #fff; }
         .yt-lib-tab.selected .yt-pill-count { background: #ffffff33; color: #fff; }
 
-        .yt-queue { margin: 24px 0 34px; padding: 16px; border: 1px solid #303030; border-radius: 14px; }
+        .yt-queue { margin: 24px 0 34px; padding: 16px; border: 1px solid #30264b; border-radius: 14px; }
 
-        .yt-queue-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid #303030; padding: 11px 0; }
+        .yt-queue-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid #30264b; padding: 11px 0; }
 
         .yt-queue-row:first-of-type { margin-top: 8px; }
 
@@ -1421,34 +1565,41 @@ export default function App() {
 
         .yt-empty strong { display: block; color: #f1f1f1; margin: 12px 0 6px; }
 
-        .yt-toast { position: fixed; z-index: 10; bottom: 20px; left: 50%; transform: translateX(-50%); max-width: calc(100vw - 24px); display: flex; align-items: center; gap: 16px; padding: 12px 16px; background: #272727; border: 1px solid #444; border-radius: 10px; box-shadow: 0 8px 30px #0008; font-size: 14px; }
+        .yt-toast { position: fixed; z-index: 10; bottom: 20px; left: 50%; transform: translateX(-50%); max-width: calc(100vw - 24px); display: flex; align-items: center; gap: 16px; padding: 12px 16px; background: #191427; border: 1px solid #444; border-radius: 10px; box-shadow: 0 8px 30px #0008; font-size: 14px; }
 
         .yt-toast button { border: 0; background: transparent; color: #f1f1f1; display: flex; }
 
-        .yt-tour-launch { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; border: 1px solid #3f3f3f; border-radius: 18px; background: #1d1d1d; color: #f1f1f1; padding: 7px 12px; font-size: 13px; transition: background .12s ease, color .12s ease, border-color .12s ease; }
+        .yt-tour-launch { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; border: 1px solid #40345f; border-radius: 18px; background: #100d18; color: #f1f1f1; padding: 7px 12px; font-size: 13px; transition: background .12s ease, color .12s ease, border-color .12s ease; }
         .yt-tour-launch:hover { background: #2a2a2a; }
-        .yt-tour-launch:active, .yt-tour-launch:focus { background: #ff0033; color: #fff; border-color: #ff0033; }
-        .yt-tour-launch.pulse { border-color: #ff0033; animation: sonora-tour-pulse 1.8s ease-in-out infinite; }
-        @keyframes sonora-tour-pulse { 0%, 100% { box-shadow: 0 0 0 0 #ff003300; } 50% { box-shadow: 0 0 0 5px #ff003355; } }
+        .yt-tour-launch:active, .yt-tour-launch:focus { background: #4c3490; color: #fff; border-color: #4c3490; }
+        .yt-tour-launch.pulse { border-color: #4c3490; animation: sonora-tour-pulse 1.8s ease-in-out infinite; }
+        @keyframes sonora-tour-pulse { 0%, 100% { box-shadow: 0 0 0 0 #4c349000; } 50% { box-shadow: 0 0 0 5px #4c349055; } }
         .yt-tour { position: fixed; inset: 0; z-index: 9000; }
         .yt-tour-blocker { position: absolute; inset: 0; }
         .yt-tour-dim { position: absolute; inset: 0; background: rgba(0, 0, 0, .74); }
-        .yt-tour-spot { position: absolute; border-radius: 12px; pointer-events: none; box-shadow: 0 0 0 9999px rgba(0, 0, 0, .74), 0 0 0 3px #ff0033; transition: top .25s ease, left .25s ease, width .25s ease, height .25s ease; }
-        .yt-tour-card { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); width: min(440px, calc(100vw - 24px)); max-height: 58vh; overflow-y: auto; padding: 16px; border: 1px solid #444; border-radius: 14px; background: #181818; color: #f1f1f1; box-shadow: 0 12px 40px #000c; }
+        .yt-tour-spot { position: absolute; border-radius: 12px; pointer-events: none; box-shadow: 0 0 0 9999px rgba(0, 0, 0, .74), 0 0 0 3px #4c3490; transition: top .25s ease, left .25s ease, width .25s ease, height .25s ease; }
+        .yt-tour-card { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); width: min(440px, calc(100vw - 24px)); max-height: 58vh; overflow-y: auto; padding: 16px; border: 1px solid #444; border-radius: 14px; background: #100d18; color: #f1f1f1; box-shadow: 0 12px 40px #000c; }
         .yt-tour-card.center { top: 50%; bottom: auto; transform: translate(-50%, -50%); }
         .yt-tour-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #aaa; font-size: 12px; }
         .yt-tour-progress { height: 4px; margin: 8px 0 12px; border-radius: 4px; background: #303030; overflow: hidden; }
-        .yt-tour-progress span { display: block; height: 100%; background: #ff0033; transition: width .25s ease; }
+        .yt-tour-progress span { display: block; height: 100%; background: #4c3490; transition: width .25s ease; }
         .yt-tour-title { margin: 0 0 6px; font-size: 18px; }
         .yt-tour-text { margin: 0; color: #ccc; font-size: 14px; line-height: 1.55; }
         .yt-tour-points { margin: 10px 0 0; padding-left: 18px; color: #ccc; font-size: 13px; line-height: 1.55; }
         .yt-tour-note { margin: 10px 0 0; color: #ffd24d; font-size: 13px; }
         .yt-tour-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 14px; }
         .yt-tour-ghost { border: 0; border-radius: 8px; background: transparent; color: #aaa; padding: 8px 10px; font-size: 13px; }
-        .yt-tour-ghost:hover { background: #272727; color: #fff; }
+        .yt-tour-ghost:hover { background: #191427; color: #fff; }
         .yt-tour-ghost:disabled { opacity: .4; cursor: not-allowed; }
-        @media (max-width: 700px) { .yt-tour-launch-label { display: none; } .yt-tour-launch { padding: 8px 10px; } .yt-tour-card { max-height: 55vh; } }
+        @media (max-width: 700px) { .yt-tour-launch { padding: 7px 10px; font-size: 12px; gap: 5px; } .yt-tour-card { max-height: 55vh; } }
 
+        .yt-brand-logo { width: 32px; height: 32px; border-radius: 8px; object-fit: contain; display: block; }
+        
+        .yt-toast { overflow: hidden; }
+        .yt-toast-text { min-width: 0; overflow-wrap: anywhere; }
+        .yt-toast-timer { flex: 0 0 auto; display: grid; place-items: center; min-width: 24px; height: 24px; border: 2px solid #4c3490; border-radius: 50%; color: #fff; font-size: 12px; font-weight: 700; }
+        .yt-toast-bar { position: absolute; left: 0; bottom: 0; width: 100%; height: 3px; background: #4c3490; transform-origin: left; animation: sonora-toast-bar 5s linear forwards; }
+        @keyframes sonora-toast-bar { from { transform: scaleX(1); } to { transform: scaleX(0); } }
         .yt-menu-button { display: none; background: transparent; border: 0; color: #f1f1f1; }
 
         @media (max-width: 1050px) { .yt-video-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
@@ -1474,7 +1625,11 @@ export default function App() {
 
       <header className="yt-header">
 
-        <div className="yt-brand"><span className="yt-brand-icon"><Youtube size={30} fill="currentColor"/></span><span className="yt-brand-word">Sonora</span></div>
+        <div className="yt-brand">{logoIndex < LOGO_FILES.length
+          ? <img className="yt-brand-logo" src={`${import.meta.env.BASE_URL}${LOGO_FILES[logoIndex]}`} alt="Sonora" onError={() => setLogoIndex((index) => index + 1)}/>
+          : <span className="yt-brand-icon"><Youtube size={30} fill="currentColor"/></span>}<span className="yt-brand-word">Sonora</span>
+          
+          </div>
 
         <button className={`yt-tour-launch ${tourSeen ? '' : 'pulse'}`} onClick={startTour} title="Guide: take a quick tour of every feature" aria-label="Open the guided tour"><Compass size={16}/><span className="yt-tour-launch-label">Guide</span></button>
 
@@ -1549,9 +1704,9 @@ export default function App() {
 
                   <iframe
                     key={`${mode}-${activeId}-${reloadKey}`}
-                    src={getPlayerSrc(mode, activeId)}
+                    src={getPlayerSrc(mode, activeId, startAt)}
                     title={activeItem ? activeItem.title : 'Sonora player'}
-                    onLoad={() => setPlayerLoading(false)}
+                    onLoad={() => { setPlayerLoading(false); playClockRef.current = { startedAt: Date.now(), base: startAt, frozenPos: null, hiddenAt: null }; }}
                     allow="fullscreen *; autoplay *; encrypted-media *; picture-in-picture *"
                     allowFullScreen
                     referrerPolicy="strict-origin-when-cross-origin"
@@ -1567,7 +1722,7 @@ export default function App() {
 
                 </div>
 
-              </div>) : (<div className="yt-player-empty"><div><Youtube size={42}/><strong>Your player is ready</strong><span>Add a link or choose a saved video below.</span></div></div>)}
+              </div>) : resumeItem ? (<div className="yt-player-empty yt-resume"><button className="yt-resume-button" onClick={resumeLast} aria-label={`Resume ${resumeItem.title}`}><img src={`https://i.ytimg.com/vi/${resumeItem.videoId}/mqdefault.jpg`} alt=""/><span className="yt-resume-overlay"><Play size={34} fill="white" color="white"/><strong>{resumeSeconds ? `Tap to resume from about ${formatClock(resumeSeconds)}` : 'Tap to resume'}</strong><span className="yt-resume-title">{resumeItem.title}</span></span></button></div>) : (<div className="yt-player-empty"><div><Youtube size={42}/><strong>Your player is ready</strong><span>Add a link or choose a saved video below.</span></div></div>)}
 
 
 
@@ -1583,7 +1738,7 @@ export default function App() {
 
               <button className="yt-small-button icon" onClick={playNextQueued} title="Next in queue: play the next video from your queue" aria-label="Next in queue"><SkipForward size={16}/></button>
 
-              {activeId && <button className="yt-small-button icon" onClick={() => setReloadKey((key) => key + 1)} title="Reload player: use this if the video is stuck loading or blank" aria-label="Reload player"><RefreshCw size={16}/></button>}
+              {activeId && <button className="yt-small-button icon" onClick={reloadPlayer} title="Reload player: use this if the video is stuck, blank or paused after the screen turned off (it restarts from about where it stopped)" aria-label="Reload player"><RefreshCw size={16}/></button>}
 
               {activeId && <button className="yt-small-button icon" title="Full screen: fill the whole screen with the player" aria-label="Full screen" onClick={async () => { const player = document.querySelector('.yt-player'); if (!player) return; try { if (document.fullscreenElement) { await document.exitFullscreen(); } else if (player.requestFullscreen) { await player.requestFullscreen(); } } catch (error) { console.error('Fullscreen could not be opened:', error); } }}><Fullscreen size={16}/></button>}
 
@@ -1599,18 +1754,19 @@ export default function App() {
             {showBgHelp && <div className="yt-bg-help" role="note">
               <strong>Play in the background</strong>
               {isIOS ? <p>iPhone and iPad close web pages and installed web apps as soon as you leave them, and Sonora cannot change that. Things you can try: open Sonora in Safari (not from the home screen icon), start the video, open it in full screen and tap the Picture-in-Picture button of the player (if it shows one) before leaving the app.</p> : <ol>
-                <li>Tap the headphones button so it turns red (Background play is on).</li>
+                <li>Tap the headphones button so it turns purple (Background play is on).</li>
                 <li>Start a song and keep the full-size player or full screen. Android often pauses the small floating mini player when you leave the app.</li>
-                <li>Press Home, switch apps or turn off the screen. The song should appear in the notification bar, and its Next button plays the next video from your queue.</li>
+                <li>Press Home or switch apps: the video keeps playing in a small floating window. The song should appear in the notification bar, and its Next button plays the next video from your queue.</li>
+                <li>When the screen turns off, the player site pauses the video after a few seconds (this also happens on desktop Chrome and Opera, so it is the site and not your phone). When you unlock, tap Reload player or Play in the notification: Sonora restarts the video from about where it stopped, if the player site accepts a start time.</li>
                 {!isStandalone && <li>For the best result install Sonora first: browser menu, then Add to Home screen or Install app, and open it from the home screen.</li>}
               </ol>}
-              <p>Background play also depends on your phone and on the video player site, so it may not work for every video. The Play and Pause buttons in the notification cannot control the video itself.</p>
+              <p>Background play also depends on your phone and on the video player site, so it may not work for every video. The Play and Pause buttons in the notification may not control the video itself.</p>
               {!isIOS && <button className="yt-small-button" onClick={openPlayerFullscreen}><Fullscreen size={14}/> Open full screen now</button>}
             </div>}
 
 
 
-            {/* {activeItem && <p className="yt-subtle">If the player stays blank, the site may block embedding: switch the player mode, reload, or <a href={activeItem.url} target="_blank" rel="noopener noreferrer" style={{ color: '#3ea6ff' }}>open appended link <ArrowUpRight size={13} style={{ verticalAlign: 'middle' }}/></a>. Note: auto-play of the next queued video is not possible with an embedded third-party site, so use "Next in queue".</p>} */}
+            {/* {activeItem && <p className="yt-subtle">If the player stays blank, the site may block embedding: switch the player mode, reload, or <a href={activeItem.url} target="_blank" rel="noopener noreferrer" style={{ color: '#9b86dc' }}>open appended link <ArrowUpRight size={13} style={{ verticalAlign: 'middle' }}/></a>. Note: auto-play of the next queued video is not possible with an embedded third-party site, so use "Next in queue".</p>} */}
 
           </section>
 
@@ -1700,6 +1856,7 @@ export default function App() {
                     <button className="yt-library-thumb" onClick={() => playVideo(video.videoId)} title="Play this video" aria-label={`Play ${video.title}`}><img src={`https://i.ytimg.com/vi/${video.videoId}/mqdefault.jpg`} alt="" loading="lazy"/></button>
                     <span className="yt-queue-name">{video.title}</span>
                     <div style={{ display: 'flex', gap: 6 }}>
+                      <button className="yt-small-button icon" onClick={() => addToQueue(video)} title="Add to queue: play this video after the ones already waiting" aria-label="Add to queue"><ListPlus size={14}/></button>
                       <button className="yt-small-button primary icon" onClick={() => playVideo(video.videoId)} title="Play this video" aria-label="Play"><Play size={14}/></button>
                       {isAdmin && <button className="yt-small-button icon" onClick={() => removeFromLibrary(shownLib.id, video.videoId)} title="Admin: remove from this library" aria-label="Remove from library"><X size={14}/></button>}
                     </div>
@@ -1748,7 +1905,7 @@ export default function App() {
 
                 <div className="yt-actions">
 
-                  <button className="yt-small-button icon" onClick={() => toggleFavorite(item.videoId)} title={favorites.includes(item.videoId) ? 'Remove from favorites' : 'Add to favorites'} aria-label={favorites.includes(item.videoId) ? 'Remove from favorites' : 'Add to favorites'} style={{ color: favorites.includes(item.videoId) ? '#ff4d6d' : undefined }}><Heart size={14} fill={favorites.includes(item.videoId) ? 'currentColor' : 'none'}/></button>
+                  <button className="yt-small-button icon" onClick={() => toggleFavorite(item.videoId)} title={favorites.includes(item.videoId) ? 'Remove from favorites' : 'Add to favorites'} aria-label={favorites.includes(item.videoId) ? 'Remove from favorites' : 'Add to favorites'} style={{ color: favorites.includes(item.videoId) ? '#9b86dc' : undefined }}><Heart size={14} fill={favorites.includes(item.videoId) ? 'currentColor' : 'none'}/></button>
                   <button className="yt-small-button icon" onClick={() => addToQueue(item)} title="Add to queue" aria-label="Add to queue"><ListPlus size={14}/></button>
                   {isAdmin && <button className="yt-small-button icon" onClick={() => addToLibrary(item)} title="Admin: add to the selected library" aria-label="Add to library"><FolderPlus size={14}/></button>}
 
@@ -1793,7 +1950,12 @@ export default function App() {
         </div>);
       })()}
 
-      {notice && <div className="yt-toast" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Dismiss notification"><X size={16}/></button></div>}
+      {notice && <div className="yt-toast" role="status" key={noticeStamp}>
+        <span className="yt-toast-text">{notice}</span>
+        <span className="yt-toast-timer" title={`Closes in ${noticeLeft} seconds`} aria-label={`Closes in ${noticeLeft} seconds`}>{noticeLeft}</span>
+        <button onClick={() => setNotice('')} aria-label="Dismiss notification" title="Close"><X size={16}/></button>
+        <span className="yt-toast-bar" style={{ animationDuration: `${NOTICE_SECONDS}s` }} />
+      </div>}
 
     </div>);
 
