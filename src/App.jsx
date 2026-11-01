@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 // import { createClient } from '@supabase/supabase-js';
 
-import { Youtube, Search, Plus, Play, ExternalLink, Trash2, ListVideo, X, Link2, ArrowUpRight, Clock3, Menu, SkipForward, RefreshCw, Copy, Download, Upload, ShieldCheck, Heart, History, Minimize2, Maximize2, Shuffle, Cloud, LogIn, LogOut, ChevronUp, ChevronDown, Library, FolderPlus, ListPlus, PictureInPicture2, Fullscreen, Lock, Unlock, RotateCcw } from 'lucide-react';
+import { Youtube, Compass, Headphones, Info, Search, Plus, Play, ExternalLink, Trash2, ListVideo, X, Link2, ArrowUpRight, Clock3, Menu, SkipForward, RefreshCw, Copy, Download, Upload, ShieldCheck, Heart, History, Minimize2, Maximize2, Shuffle, Cloud, LogIn, LogOut, ChevronUp, ChevronDown, Library, FolderPlus, ListPlus, PictureInPicture2, Fullscreen, Lock, Unlock, RotateCcw } from 'lucide-react';
 
 const STORAGE_KEY = 'sonora-youtube-links';
 
@@ -10,6 +10,10 @@ const ACTIVE_KEY = 'sonora-active-youtube';
 const QUEUE_KEY = 'sonora-youtube-queue';
 
 const MODE_KEY = 'sonora-player-mode';
+
+const BG_KEY = 'sonora-background-play';
+
+const TOUR_KEY = 'sonora-tour-seen';
 
 const DEFAULT_TITLE_PREFIX = 'YouTube video · ';
 const FAVORITES_KEY = 'sonora-favorites';
@@ -31,6 +35,47 @@ const AUTO_RELOAD_MS = 60000; // auto-trigger Reload player after 1 minute
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 const supabase = SUPABASE_URL && SUPABASE_ANON_KEY ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+// A one-second silent WAV, generated in memory. Looping it keeps the page registered as a media player
+// (so Android keeps it alive in the background and shows a notification) without any sound being heard.
+function createSilentWavUrl() {
+    const sampleRate = 8000;
+    const samples = sampleRate;
+    const buffer = new ArrayBuffer(44 + samples);
+    const view = new DataView(buffer);
+    const write = (offset, text) => { for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i)); };
+    write(0, 'RIFF');
+    view.setUint32(4, 36 + samples, true);
+    write(8, 'WAVE');
+    write(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate, true);
+    view.setUint16(32, 1, true);
+    view.setUint16(34, 8, true);
+    write(36, 'data');
+    view.setUint32(40, samples, true);
+    new Uint8Array(buffer, 44).fill(128);
+    return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
+}
+
+// Guided tour: each step highlights one part of the page (CSS selector in `target`) and explains it.
+const TOUR_STEPS = [
+    { target: '.yt-brand', top: true, title: 'Welcome to Sonora', text: 'Sonora saves your YouTube links, builds a queue and plays everything in an ad-free player. This short tour highlights every feature. Tap Next to continue, or Skip tour at any time. You can reopen it later from the Guide button.' },
+    { target: '.yt-search', top: true, title: 'Search', text: 'Type here to filter your saved videos by title. Press the search button to search YouTube in a new browser tab.' },
+    { target: '.yt-pills', top: true, title: 'Top bar', text: 'Quick buttons that jump to each part of the app. The bar stays on screen while you scroll, and the numbers show how many items each section holds.', points: ['All: clears filters and goes back to the top', 'Add link: jump to the box for saving a link', 'Saved videos: your saved list', 'Favorites: show only the videos you hearted (tap again for All videos)', 'Watch history: the videos you played recently', 'Library: ready-made playlists', 'Queue: videos waiting to play'] },
+    { target: '#add-link', title: 'Add a YouTube link', text: 'Paste any YouTube video link (watch, Shorts, live or youtu.be) and tap Save link. It is saved on this device and starts playing right away. Links shared to Sonora from other apps also land in this box.' },
+    { target: '.yt-player-section', title: 'The player', text: 'Your video plays here. A loading screen shows while it starts. If it is slow, a hint appears after 10 seconds and the player reloads by itself after 1 minute.' },
+    { target: '.yt-toolbar', title: 'Player controls', text: 'Buttons under the player:', points: ['Ad-free site: the player mode in use', 'Skip icon: play the next video from your queue', 'Reload icon: use it if the video is stuck or blank', 'Full screen icon: fill the whole screen with the player', 'Mini player icon: float the video in a corner while you browse (use its corner buttons to expand or close)', 'Headphones: background play', 'i icon: tips for background play'] },
+    { target: '.yt-toolbar', title: 'Background play', text: 'Turn on the headphones button (it turns red) to keep music going when you leave the app or turn off the screen. On Android the song should appear in the notification bar, and its Next button plays the next queued video. For the best result use the full-size or full-screen player, and install Sonora to your home screen. iPhone and iPad usually pause web apps when you leave them.' },
+    { target: '#queue', title: 'Queue', text: 'Videos you add with the list-plus button, or with Play all from a library, wait here. Use the arrows to reorder, the shuffle icon to mix them, the play button to play one now, or clear everything. The next video does not start by itself: press the skip icon under the player.' },
+    { target: '#libraries', title: 'Library', text: 'Playlists published with the app. Each playlist is a tab with its video count (swipe sideways to see all tabs).', points: ['Search box: finds videos inside the open playlist', 'List-plus button (Queue all): adds the listed videos to your queue', 'Play button (Play all): plays the first video and queues the rest', 'Lock icon: admin login for the site owner to create playlists, paste many links at once and export libraries.json'] },
+    { target: '#saved-videos', title: 'Saved videos', text: 'Everything you saved. Tap a thumbnail to play it.', points: ['Heart: add or remove a favorite', 'List-plus: add to the queue', 'Trash: remove from your saved list', 'Header icons: Queue all, Backup (download a JSON file) and Import (load a backup)'] },
+    { title: 'Keep your data safe', text: 'Saved videos, favorites, history and the queue are stored in this browser on this device only. Use Backup in Saved videos now and then, and Import to restore it on another device. To install Sonora, open your browser menu and choose Add to Home screen or Install app.' },
+    { title: 'You are all set', text: 'Enjoy Sonora. Tap the Guide button next to the logo whenever you want to see this tour again.' },
+];
 
 function readStoredArray(key) {
     try {
@@ -214,10 +259,19 @@ export default function App() {
 
     const [navPill, setNavPill] = useState('all'); // last clicked top pill (stays highlighted)
     const [librarySearch, setLibrarySearch] = useState('');
+    const [bgPlay, setBgPlay] = useState(() => localStorage.getItem(BG_KEY) === '1');
+    const [showBgHelp, setShowBgHelp] = useState(false);
+    const [tourStep, setTourStep] = useState(null);
+    const [tourRect, setTourRect] = useState(null);
+    const [tourSeen, setTourSeen] = useState(() => localStorage.getItem(TOUR_KEY) === '1');
 
     const triedTitles = useRef(new Set());
 
     const importRef = useRef(null);
+
+    const bgAudioRef = useRef(null);
+
+    const playNextRef = useRef(null);
 
     useEffect(() => {
         // Brief branded intro on every fresh app load or page refresh.
@@ -404,6 +458,170 @@ export default function App() {
         if (!term) return base;
         return base.filter((item) => item.title.toLowerCase().includes(term) || item.videoId.toLowerCase().includes(term));
     }, [items, search, showFavoritesOnly, favorites]);
+
+    // ---- Guided tour ----
+    function startTour() {
+        setShowBgHelp(false);
+        setTourRect(null);
+        setTourStep(0);
+    }
+
+    function closeTour() {
+        setTourStep(null);
+        setTourRect(null);
+        setTourSeen(true);
+        localStorage.setItem(TOUR_KEY, '1');
+    }
+
+    function tourNext() {
+        if (tourStep === null) return;
+        if (tourStep >= TOUR_STEPS.length - 1) closeTour();
+        else setTourStep(tourStep + 1);
+    }
+
+    function tourBack() {
+        if (tourStep !== null && tourStep > 0) setTourStep(tourStep - 1);
+    }
+
+    // Scrolls to the highlighted part of the page and keeps the spotlight on it while scrolling/resizing.
+    useEffect(() => {
+        if (tourStep === null) return undefined;
+        const step = TOUR_STEPS[tourStep];
+        if (!step.target) {
+            setTourRect(null);
+            return undefined;
+        }
+        const measure = () => {
+            const el = document.querySelector(step.target);
+            if (!el) {
+                setTourRect({ missing: true });
+                return;
+            }
+            const r = el.getBoundingClientRect();
+            if (!r.width || !r.height) {
+                setTourRect({ missing: true });
+                return;
+            }
+            const top = Math.max(r.top - 6, 4);
+            const bottom = Math.min(r.bottom + 6, window.innerHeight - 4);
+            if (bottom <= top + 8) return;
+            const left = Math.max(r.left - 6, 4);
+            const right = Math.min(r.right + 6, window.innerWidth - 4);
+            setTourRect({ top, left, width: right - left, height: bottom - top });
+        };
+        const target = document.querySelector(step.target);
+        if (step.top) window.scrollTo({ top: 0, behavior: 'smooth' });
+        else if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        measure();
+        const timers = [window.setTimeout(measure, 350), window.setTimeout(measure, 900)];
+        let frame = 0;
+        const onMove = () => {
+            window.cancelAnimationFrame(frame);
+            frame = window.requestAnimationFrame(measure);
+        };
+        window.addEventListener('scroll', onMove, true);
+        window.addEventListener('resize', onMove);
+        return () => {
+            timers.forEach((timer) => window.clearTimeout(timer));
+            window.cancelAnimationFrame(frame);
+            window.removeEventListener('scroll', onMove, true);
+            window.removeEventListener('resize', onMove);
+        };
+    }, [tourStep]);
+
+    useEffect(() => {
+        if (tourStep === null) return undefined;
+        const onKey = (event) => {
+            if (event.key === 'ArrowRight') tourNext();
+            else if (event.key === 'ArrowLeft') tourBack();
+            else if (event.key === 'Escape') closeTour();
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [tourStep]);
+
+    // ---- Background play (Android notification + screen-off) ----
+    const isIOS = typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+    const isStandalone = typeof window !== 'undefined' && (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true);
+
+    function ensureBgAudio() {
+        if (!bgAudioRef.current) {
+            const audio = new Audio(createSilentWavUrl());
+            audio.loop = true;
+            bgAudioRef.current = audio;
+        }
+        return bgAudioRef.current;
+    }
+
+    function toggleBackgroundPlay() {
+        const next = !bgPlay;
+        setBgPlay(next);
+        if (next) {
+            // Started inside the tap so the browser allows it.
+            ensureBgAudio().play().catch(() => { });
+            setNotice(isIOS
+                ? 'Background play is on, but iPhone/iPad usually pause web apps when you leave them. Tap the info button for tips.'
+                : 'Background play is on. Open the full-size player (not the mini player) before leaving the app. The song details should appear in your notification bar.');
+        } else {
+            setNotice('Background play is off.');
+        }
+    }
+
+    async function openPlayerFullscreen() {
+        const player = document.querySelector('.yt-player');
+        if (!player) {
+            setNotice('Play a video first, then open it in full screen.');
+            return;
+        }
+        try {
+            if (player.requestFullscreen) await player.requestFullscreen();
+        } catch (error) {
+            console.error('Fullscreen could not be opened:', error);
+        }
+    }
+
+    useEffect(() => {
+        localStorage.setItem(BG_KEY, bgPlay ? '1' : '0');
+    }, [bgPlay]);
+
+    // Keeps a silent audio loop running while a video is playing and publishes the song to the system media controls.
+    useEffect(() => {
+        const mediaSession = typeof navigator !== 'undefined' ? navigator.mediaSession : undefined;
+        if (!bgPlay || !activeId) {
+            if (bgAudioRef.current) bgAudioRef.current.pause();
+            if (mediaSession) {
+                try {
+                    mediaSession.metadata = null;
+                    mediaSession.playbackState = 'none';
+                } catch { /* not supported */ }
+            }
+            return;
+        }
+        ensureBgAudio().play().catch(() => { /* needs a tap first; retried on the next tap */ });
+        if (mediaSession && typeof MediaMetadata !== 'undefined') {
+            try {
+                mediaSession.metadata = new MediaMetadata({
+                    title: activeItem ? activeItem.title : 'Sonora',
+                    artist: 'Sonora',
+                    album: 'Sonora',
+                    artwork: [{ src: `https://i.ytimg.com/vi/${activeId}/mqdefault.jpg`, sizes: '320x180', type: 'image/jpeg' }],
+                });
+                mediaSession.playbackState = 'playing';
+                mediaSession.setActionHandler('nexttrack', () => { if (playNextRef.current) playNextRef.current(); });
+            } catch { /* not supported */ }
+        }
+    }, [bgPlay, activeId, activeItem ? activeItem.title : '']);
+
+    useEffect(() => {
+        // When the user comes back to the app, make sure the background hold is still running.
+        const resume = () => {
+            if (document.visibilityState === 'visible' && bgPlay && activeId && bgAudioRef.current && bgAudioRef.current.paused) {
+                bgAudioRef.current.play().catch(() => { });
+            }
+        };
+        document.addEventListener('visibilitychange', resume);
+        return () => document.removeEventListener('visibilitychange', resume);
+    }, [bgPlay, activeId]);
 
     function playVideo(videoId) {
         setActiveId(videoId);
@@ -950,6 +1168,8 @@ export default function App() {
 
     }
 
+    playNextRef.current = playNextQueued;
+
     return (<div className="yt-app">
 
       <style>{`
@@ -1142,6 +1362,11 @@ export default function App() {
         .yt-small-button.icon { width: 34px; height: 34px; padding: 0; }
         .yt-video-grid .yt-small-button.icon { width: 30px; height: 30px; padding: 0; }
         .yt-small-button:disabled { opacity: .45; cursor: not-allowed; }
+        .yt-small-button.bg-on { background: #ff0033; color: #fff; }
+        .yt-bg-help { max-width: 1100px; margin: 12px 0 0; padding: 14px 16px; border: 1px solid #303030; border-radius: 12px; background: #161616; color: #bbb; font-size: 13px; line-height: 1.6; }
+        .yt-bg-help strong { color: #f1f1f1; font-size: 14px; }
+        .yt-bg-help ol { margin: 8px 0; padding-left: 20px; }
+        .yt-bg-help p { margin: 8px 0; }
 
         /* Button click highlight */
         button { -webkit-tap-highlight-color: #ff003355; }
@@ -1200,6 +1425,30 @@ export default function App() {
 
         .yt-toast button { border: 0; background: transparent; color: #f1f1f1; display: flex; }
 
+        .yt-tour-launch { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; border: 1px solid #3f3f3f; border-radius: 18px; background: #1d1d1d; color: #f1f1f1; padding: 7px 12px; font-size: 13px; transition: background .12s ease, color .12s ease, border-color .12s ease; }
+        .yt-tour-launch:hover { background: #2a2a2a; }
+        .yt-tour-launch:active, .yt-tour-launch:focus { background: #ff0033; color: #fff; border-color: #ff0033; }
+        .yt-tour-launch.pulse { border-color: #ff0033; animation: sonora-tour-pulse 1.8s ease-in-out infinite; }
+        @keyframes sonora-tour-pulse { 0%, 100% { box-shadow: 0 0 0 0 #ff003300; } 50% { box-shadow: 0 0 0 5px #ff003355; } }
+        .yt-tour { position: fixed; inset: 0; z-index: 9000; }
+        .yt-tour-blocker { position: absolute; inset: 0; }
+        .yt-tour-dim { position: absolute; inset: 0; background: rgba(0, 0, 0, .74); }
+        .yt-tour-spot { position: absolute; border-radius: 12px; pointer-events: none; box-shadow: 0 0 0 9999px rgba(0, 0, 0, .74), 0 0 0 3px #ff0033; transition: top .25s ease, left .25s ease, width .25s ease, height .25s ease; }
+        .yt-tour-card { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); width: min(440px, calc(100vw - 24px)); max-height: 58vh; overflow-y: auto; padding: 16px; border: 1px solid #444; border-radius: 14px; background: #181818; color: #f1f1f1; box-shadow: 0 12px 40px #000c; }
+        .yt-tour-card.center { top: 50%; bottom: auto; transform: translate(-50%, -50%); }
+        .yt-tour-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #aaa; font-size: 12px; }
+        .yt-tour-progress { height: 4px; margin: 8px 0 12px; border-radius: 4px; background: #303030; overflow: hidden; }
+        .yt-tour-progress span { display: block; height: 100%; background: #ff0033; transition: width .25s ease; }
+        .yt-tour-title { margin: 0 0 6px; font-size: 18px; }
+        .yt-tour-text { margin: 0; color: #ccc; font-size: 14px; line-height: 1.55; }
+        .yt-tour-points { margin: 10px 0 0; padding-left: 18px; color: #ccc; font-size: 13px; line-height: 1.55; }
+        .yt-tour-note { margin: 10px 0 0; color: #ffd24d; font-size: 13px; }
+        .yt-tour-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 14px; }
+        .yt-tour-ghost { border: 0; border-radius: 8px; background: transparent; color: #aaa; padding: 8px 10px; font-size: 13px; }
+        .yt-tour-ghost:hover { background: #272727; color: #fff; }
+        .yt-tour-ghost:disabled { opacity: .4; cursor: not-allowed; }
+        @media (max-width: 700px) { .yt-tour-launch-label { display: none; } .yt-tour-launch { padding: 8px 10px; } .yt-tour-card { max-height: 55vh; } }
+
         .yt-menu-button { display: none; background: transparent; border: 0; color: #f1f1f1; }
 
         @media (max-width: 1050px) { .yt-video-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
@@ -1226,6 +1475,8 @@ export default function App() {
       <header className="yt-header">
 
         <div className="yt-brand"><span className="yt-brand-icon"><Youtube size={30} fill="currentColor"/></span><span className="yt-brand-word">Sonora</span></div>
+
+        <button className={`yt-tour-launch ${tourSeen ? '' : 'pulse'}`} onClick={startTour} title="Guide: take a quick tour of every feature" aria-label="Open the guided tour"><Compass size={16}/><span className="yt-tour-launch-label">Guide</span></button>
 
         <form className="yt-search" onSubmit={(event) => { event.preventDefault(); openSearch(); }}>
 
@@ -1337,9 +1588,25 @@ export default function App() {
               {activeId && <button className="yt-small-button icon" title="Full screen: fill the whole screen with the player" aria-label="Full screen" onClick={async () => { const player = document.querySelector('.yt-player'); if (!player) return; try { if (document.fullscreenElement) { await document.exitFullscreen(); } else if (player.requestFullscreen) { await player.requestFullscreen(); } } catch (error) { console.error('Fullscreen could not be opened:', error); } }}><Fullscreen size={16}/></button>}
 
               {activeItem && <button className="yt-small-button icon" onClick={() => setMiniPlayer((value) => !value)} title={miniPlayer ? 'Expand player: return to the full-size player' : 'Mini player: keep the video floating in the corner while you browse'} aria-label={miniPlayer ? 'Expand player' : 'Mini player'}>{miniPlayer ? <Maximize2 size={16}/> : <PictureInPicture2 size={16}/>}</button>}
+
+              <button className={`yt-small-button icon ${bgPlay ? 'bg-on' : ''}`} onClick={toggleBackgroundPlay} aria-pressed={bgPlay} title={bgPlay ? 'Background play is ON: tap to turn off' : 'Background play: keep the music going when you leave the app or turn off the screen'} aria-label="Background play"><Headphones size={16}/></button>
+
+              <button className="yt-small-button icon" onClick={() => setShowBgHelp((value) => !value)} title="How to keep the music playing in the background" aria-label="Background play help"><Info size={16}/></button>
               {/* {activeItem && <button className="yt-small-button" onClick={copyActiveLink}><Copy size={14}/> Copy link</button>} */}
 
             </div>
+
+            {showBgHelp && <div className="yt-bg-help" role="note">
+              <strong>Play in the background</strong>
+              {isIOS ? <p>iPhone and iPad close web pages and installed web apps as soon as you leave them, and Sonora cannot change that. Things you can try: open Sonora in Safari (not from the home screen icon), start the video, open it in full screen and tap the Picture-in-Picture button of the player (if it shows one) before leaving the app.</p> : <ol>
+                <li>Tap the headphones button so it turns red (Background play is on).</li>
+                <li>Start a song and keep the full-size player or full screen. Android often pauses the small floating mini player when you leave the app.</li>
+                <li>Press Home, switch apps or turn off the screen. The song should appear in the notification bar, and its Next button plays the next video from your queue.</li>
+                {!isStandalone && <li>For the best result install Sonora first: browser menu, then Add to Home screen or Install app, and open it from the home screen.</li>}
+              </ol>}
+              <p>Background play also depends on your phone and on the video player site, so it may not work for every video. The Play and Pause buttons in the notification cannot control the video itself.</p>
+              {!isIOS && <button className="yt-small-button" onClick={openPlayerFullscreen}><Fullscreen size={14}/> Open full screen now</button>}
+            </div>}
 
 
 
@@ -1504,6 +1771,27 @@ export default function App() {
       </div>
 
 
+
+      {tourStep !== null && (() => {
+        const step = TOUR_STEPS[tourStep];
+        const spot = tourRect && !tourRect.missing ? tourRect : null;
+        return (<div className="yt-tour" role="dialog" aria-modal="true" aria-label="Sonora guided tour">
+          <div className="yt-tour-blocker" />
+          {spot ? <div className="yt-tour-spot" style={{ top: spot.top, left: spot.left, width: spot.width, height: spot.height }} /> : <div className="yt-tour-dim" />}
+          <div className={`yt-tour-card ${step.target ? '' : 'center'}`}>
+            <div className="yt-tour-meta"><span>Step {tourStep + 1} of {TOUR_STEPS.length}</span><button className="yt-tour-ghost" onClick={closeTour}>Skip tour</button></div>
+            <div className="yt-tour-progress"><span style={{ width: `${((tourStep + 1) / TOUR_STEPS.length) * 100}%` }} /></div>
+            <h3 className="yt-tour-title">{step.title}</h3>
+            <p className="yt-tour-text">{step.text}</p>
+            {step.points && <ul className="yt-tour-points">{step.points.map((point) => <li key={point}>{point}</li>)}</ul>}
+            {step.target && tourRect && tourRect.missing && <p className="yt-tour-note">This section appears after you add something to it.</p>}
+            <div className="yt-tour-actions">
+              <button className="yt-tour-ghost" onClick={tourBack} disabled={tourStep === 0}>Back</button>
+              <button className="yt-red-button" onClick={tourNext}>{tourStep === TOUR_STEPS.length - 1 ? 'Done' : 'Next'}</button>
+            </div>
+          </div>
+        </div>);
+      })()}
 
       {notice && <div className="yt-toast" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Dismiss notification"><X size={16}/></button></div>}
 
