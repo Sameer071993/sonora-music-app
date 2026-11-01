@@ -73,7 +73,7 @@ function createSilentWavUrl() {
 const TOUR_STEPS = [
     { target: '.yt-brand', top: true, title: 'Welcome to Sonora', text: 'Sonora saves your YouTube links, builds a queue and plays everything in an ad-free player. This short tour highlights every feature. Tap Next to continue, or Skip tour at any time. You can reopen it later from the Guide button.' },
     { target: '.yt-search', top: true, title: 'Search', text: 'Type here to filter your saved videos by title. Press the search button to search YouTube in a new browser tab.' },
-    { target: '.yt-pills', top: true, title: 'Top bar', text: 'Quick buttons that jump to each part of the app. The bar stays on screen while you scroll, and the numbers show how many items each section holds.', points: ['All: clears filters and goes back to the top', 'Add link: jump to the box for saving a link', 'Saved videos: your saved list', 'Favorites: show only the videos you hearted (tap again for All videos)', 'Watch history: the videos you played recently', 'Library: ready-made playlists', 'Queue: videos waiting to play'] },
+    { target: '.yt-pills', top: true, title: 'Top bar', text: 'Quick buttons that jump to each part of the app. The bar stays on screen while you scroll, and the numbers show how many items each section holds.', points: ['Add link: jump to the box for saving a link', 'Saved videos: shows your full saved list (clears the Favorites filter and search)', 'Favorites: shows only the videos you hearted (tap again to see all)', 'Watch history: opens the videos you played recently (tap again to close)', 'Library: ready-made playlists', 'Queue: videos waiting to play'] },
     { target: '#add-link', title: 'Add a YouTube link', text: 'Paste any YouTube video link (watch, Shorts, live or youtu.be) and tap Save link. It is saved on this device and starts playing right away. Links shared to Sonora from other apps also land in this box.' },
     { target: '.yt-player-section', title: 'The player', text: 'Your video plays here. A loading screen shows while it starts. If it is slow, a hint appears after 10 seconds and the player reloads by itself after 1 minute.' },
     { target: '.yt-toolbar', title: 'Player controls', text: 'Buttons under the player:', points: ['Ad-free site: the player mode in use', 'Skip icon: play the next video from your queue', 'Reload icon: use it if the video is stuck or blank', 'Full screen icon: fill the whole screen with the player', 'Mini player icon: float the video in a corner while you browse (use its corner buttons to expand or close)', 'Headphones: background play', 'i icon: tips for background play'] },
@@ -281,7 +281,7 @@ export default function App() {
     const [noticeLeft, setNoticeLeft] = useState(NOTICE_SECONDS);
     const [showStartupLoader, setShowStartupLoader] = useState(true);
 
-    const [navPill, setNavPill] = useState('all'); // last clicked top pill (stays highlighted)
+    const [navPill, setNavPill] = useState('saved'); // last clicked top pill (stays highlighted)
     const [librarySearch, setLibrarySearch] = useState('');
     const [bgPlay, setBgPlay] = useState(() => localStorage.getItem(BG_KEY) === '1');
     const [showBgHelp, setShowBgHelp] = useState(false);
@@ -1375,6 +1375,7 @@ export default function App() {
 
         .yt-main { width: 100%; max-width: 1600px; padding: 24px clamp(16px, 3vw, 44px) 80px; margin: 0 auto; }
 
+        .yt-main section[id] { scroll-margin-top: 140px; } /* keeps section titles clear of the sticky top bar */
         .yt-pills { display: flex; gap: 10px; overflow-x: auto; padding: 12px 0; margin-bottom: 10px; scrollbar-width: none; -webkit-overflow-scrolling: touch; position: sticky; top: 64px; z-index: 40; background: #050507; border-bottom: 1px solid #30264b; }
 
         .yt-pill { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; white-space: nowrap; border: 0; border-radius: 8px; padding: 9px 13px; background: #191427; color: #f1f1f1; font-size: 14px; }
@@ -1655,15 +1656,13 @@ export default function App() {
 
           <div className="yt-pills">
 
-            <button className={`yt-pill ${navPill === 'all' ? 'selected' : ''}`} onClick={() => { setNavPill('all'); setSearch(''); setShowFavoritesOnly(false); setShowHistory(false); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Play size={14} fill="currentColor"/> All</button>
-
             <button className={`yt-pill ${navPill === 'add-link' ? 'selected' : ''}`} onClick={() => { setNavPill('add-link'); document.getElementById('add-link')?.scrollIntoView({ behavior: 'smooth' }); }}><Link2 size={14}/> Add link</button>
 
-            <button className={`yt-pill ${navPill === 'saved' ? 'selected' : ''}`} onClick={() => { setNavPill('saved'); document.getElementById('saved-videos')?.scrollIntoView({ behavior: 'smooth' }); }}><ListVideo size={14}/> Saved videos <span className="yt-pill-count">{items.length}</span></button>
+            <button className={`yt-pill ${navPill === 'saved' ? 'selected' : ''}`} onClick={() => { setNavPill('saved'); setSearch(''); setShowFavoritesOnly(false); setShowHistory(false); window.setTimeout(() => document.getElementById('saved-videos')?.scrollIntoView({ behavior: 'smooth' }), 60); }}><ListVideo size={14}/> Saved videos <span className="yt-pill-count">{items.length}</span></button>
 
-            <button className={`yt-pill ${navPill === 'favorites' ? 'selected' : ''}`} onClick={() => { setNavPill(showFavoritesOnly ? 'all' : 'favorites'); setShowFavoritesOnly((value) => !value); setShowHistory(false); }}><Heart size={14}/> {showFavoritesOnly ? 'All videos' : 'Favorites'} <span className="yt-pill-count">{favorites.length}</span></button>
+            <button className={`yt-pill ${navPill === 'favorites' ? 'selected' : ''}`} onClick={() => { const on = !showFavoritesOnly; setNavPill(on ? 'favorites' : 'saved'); setShowFavoritesOnly(on); setShowHistory(false); window.setTimeout(() => document.getElementById('saved-videos')?.scrollIntoView({ behavior: 'smooth' }), 60); }}><Heart size={14}/> Favorites <span className="yt-pill-count">{favorites.length}</span></button>
 
-            <button className={`yt-pill ${navPill === 'history' ? 'selected' : ''}`} onClick={() => { setNavPill(showHistory ? 'all' : 'history'); setShowHistory((value) => !value); }}><History size={14}/> Watch history <span className="yt-pill-count">{history.length}</span></button>
+            <button className={`yt-pill ${navPill === 'history' ? 'selected' : ''}`} onClick={() => { const open = !showHistory; setNavPill(open ? 'history' : 'saved'); setShowHistory(open); if (open) window.setTimeout(() => document.getElementById('history')?.scrollIntoView({ behavior: 'smooth' }), 60); }}><History size={14}/> Watch history <span className="yt-pill-count">{history.length}</span></button>
 
             <button className={`yt-pill ${navPill === 'library' ? 'selected' : ''}`} onClick={() => { setNavPill('library'); document.getElementById('libraries')?.scrollIntoView({ behavior: 'smooth' }); }}><Library size={14}/> Library <span className="yt-pill-count">{libraries.length}</span></button>
 
@@ -1793,7 +1792,7 @@ export default function App() {
             {cloudStatus && <p className="yt-cloud-status" role="status">{cloudStatus}</p>}
           </section> */}
 
-          {showHistory && <section className="yt-queue">
+          {showHistory && <section className="yt-queue" id="history">
             <h2 className="yt-section-title"><span><History size={20} style={{ verticalAlign: 'middle', marginRight: 8 }}/>Recently played</span><button className="yt-small-button danger icon" onClick={() => { setHistory([]); setNotice('Watch history cleared.'); }} title="Clear history: remove all recently played videos" aria-label="Clear history"><Trash2 size={14}/></button></h2>
             {history.length ? <div className="yt-history-list">{history.slice(0, 20).map((item) => <div className="yt-history-row" key={item.videoId}><span className="yt-queue-name">{item.title}</span><button className="yt-small-button primary icon" onClick={() => playVideo(item.videoId)} title="Play this video again" aria-label="Play"><Play size={14}/></button></div>)}</div> : <p className="yt-cloud-status">Videos you play will appear here.</p>}
           </section>}
